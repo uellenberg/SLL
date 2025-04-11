@@ -1,6 +1,19 @@
 pub mod lower;
+mod type_check;
 
+use crate::mir::type_check::type_check;
 use std::collections::HashMap;
+
+/// Applies all MIR phases and
+/// optimizations, returning
+/// whether it was successful.
+pub fn visit_mir(program: &mut MIRProgram<'_>) -> bool {
+    if !type_check(program) {
+        return false;
+    }
+
+    true
+}
 
 /// An entire program.
 /// Every name must be unique
@@ -127,7 +140,7 @@ pub enum MIRExpression<'a> {
 }
 
 /// The type of data a variable represents.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MIRType {
     /// Unsigned 32-bit integer.
     U32,
