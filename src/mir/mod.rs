@@ -92,7 +92,7 @@ pub struct MIRConstant<'a> {
     pub name: &'a str,
 
     /// The constant's type.
-    pub ty: MIRType,
+    pub ty: MIRTypeLiteral<'a>,
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
@@ -111,7 +111,7 @@ pub struct MIRStatic<'a> {
     pub name: &'a str,
 
     /// The constant's type.
-    pub ty: MIRType,
+    pub ty: MIRTypeLiteral<'a>,
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
@@ -128,7 +128,7 @@ pub struct MIRFunction<'a> {
     pub name: &'a str,
 
     /// The function's return type.
-    pub ret_ty: MIRType,
+    pub ret_ty: MIRTypeLiteral<'a>,
 
     /// A list of the arguments that
     /// the function takes in.
@@ -152,7 +152,7 @@ pub struct MIRVariable<'a> {
 
     /// The type of the data stored
     /// inside the variable.
-    pub ty: MIRType,
+    pub ty: MIRTypeLiteral<'a>,
 
     /// The code that created
     /// this item.
@@ -206,6 +206,21 @@ pub enum MIRExpression<'a> {
 
     /// Variable access.
     Variable(&'a str, Span<'a>),
+}
+
+/// A type written out as text.
+#[derive(Debug, Clone)]
+pub struct MIRTypeLiteral<'a> {
+    /// The type represented by the literal.
+    pub ty: MIRType,
+
+    /// The literal's span.
+    /// This type is sometimes
+    /// inferred.
+    /// In that case, it will be
+    /// placed at the inference site,
+    /// if possible, or else None.
+    pub span: Option<Span<'a>>,
 }
 
 /// The type of data a variable represents.

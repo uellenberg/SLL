@@ -2,7 +2,7 @@ pub mod file_cache;
 
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
-    MIRVariable, Span, to_span,
+    MIRTypeLiteral, MIRVariable, Span, to_span,
 };
 use pest::Parser;
 use pest::error::Error;
@@ -109,7 +109,7 @@ fn parse_static<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRStatic<'a> 
     let mut data = value.into_inner();
 
     let identifier = data.next().unwrap().as_str();
-    let ty = parse_type(data.next().unwrap());
+    let ty = parse_type(location, data.next().unwrap());
     let expr = parse_expression(location, data.next().unwrap());
 
     MIRStatic {
@@ -127,7 +127,7 @@ fn parse_constant<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRConstant<
     let mut data = value.into_inner();
 
     let identifier = data.next().unwrap().as_str();
-    let ty = parse_type(data.next().unwrap());
+    let ty = parse_type(location, data.next().unwrap());
     let expr = parse_expression(location, data.next().unwrap());
 
     MIRConstant {
@@ -146,7 +146,10 @@ fn parse_function<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRFunction<
 
     let identifier = data.next().unwrap().as_str();
     let mut args = vec![];
-    let mut ret = MIRType::Unit;
+    let mut ret = MIRTypeLiteral {
+        ty: MIRType::Unit,
+        span: None,
+    };
 
     for pair in data {
         match pair.as_rule() {
@@ -155,7 +158,7 @@ fn parse_function<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRFunction<
             }
             Rule::functionReturn => {
                 // functionReturn([type])
-                ret = parse_type(pair.into_inner().next().unwrap());
+                ret = parse_type(location, pair.into_inner().next().unwrap());
             }
             Rule::functionBody => {
                 // Function body is the last item.
@@ -188,7 +191,7 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                 let mut data = pair.into_inner();
 
                 let identifier = data.next().unwrap().as_str();
-                let ty = parse_type(data.next().unwrap());
+                let ty = parse_type(location, data.next().unwrap());
 
                 body.push(MIRStatement::CreateVariable(
                     MIRVariable {
@@ -231,7 +234,7 @@ fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                 let mut data = pair.into_inner();
 
                 let identifier = data.next().unwrap().as_str();
-                let ty = parse_type(data.next().unwrap());
+                let ty = parse_type(location, data.next().unwrap());
 
                 args.push(MIRVariable {
                     name: identifier,
@@ -308,13 +311,18 @@ fn parse_primary<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression
     }
 }
 
-fn parse_type(value: Pair<'_, Rule>) -> MIRType {
+fn parse_type<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRTypeLiteral<'a> {
     assert_eq!(value.as_rule(), Rule::variableType);
 
-    match value.as_str() {
+    let ty = match value.as_str() {
         "u32" => MIRType::U32,
         "()" => MIRType::Unit,
         _ => unreachable!(),
+    };
+
+    MIRTypeLiteral {
+        ty,
+        span: Some(to_span(location, value.as_span())),
     }
 }
 

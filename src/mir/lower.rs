@@ -43,7 +43,7 @@ fn lower_type(mir_type: &MIRType) -> IRType {
 fn lower_variable<'a>(mir_variable: &MIRVariable<'a>) -> IRVariable<'a> {
     IRVariable {
         name: mir_variable.name,
-        ty: lower_type(&mir_variable.ty),
+        ty: lower_type(&mir_variable.ty.ty),
     }
 }
 
@@ -71,7 +71,7 @@ fn lower_constant<'a>(mir_constant: &MIRConstant<'a>) -> IRConstant<'a> {
 
     IRConstant {
         name: mir_constant.name,
-        ty: lower_type(&mir_constant.ty),
+        ty: lower_type(&mir_constant.ty.ty),
         value: num,
     }
 }
@@ -84,7 +84,7 @@ fn lower_static<'a>(mir_static: &MIRStatic<'a>) -> IRStatic<'a> {
 
     IRStatic {
         name: mir_static.name,
-        ty: lower_type(&mir_static.ty),
+        ty: lower_type(&mir_static.ty.ty),
         value: num,
     }
 }
@@ -92,7 +92,7 @@ fn lower_static<'a>(mir_static: &MIRStatic<'a>) -> IRStatic<'a> {
 /// Converts MIRFunction to IRFunction.
 fn lower_function<'a>(mir_function: &MIRFunction<'a>) -> IRFunction<'a> {
     // Unit means no return.
-    let ir_ret_ty = match mir_function.ret_ty {
+    let ir_ret_ty = match mir_function.ret_ty.ty {
         MIRType::Unit => None,
         MIRType::U32 => Some(IRType::U32),
     };

@@ -1,6 +1,7 @@
 use crate::mir::scope::{Scope, explore_block};
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
+    MIRTypeLiteral,
 };
 
 /// Finds and reports type errors, returning
@@ -33,7 +34,7 @@ fn check_constant(ctx: &MIRContext<'_>, constant: &MIRConstant<'_>) -> bool {
         return false;
     };
 
-    if expr_type != constant.ty {
+    if expr_type.ty != constant.ty.ty {
         eprintln!("Constant type != expression type: {constant:?}");
         return false;
     }
@@ -47,7 +48,7 @@ fn check_static(ctx: &MIRContext<'_>, static_data: &MIRStatic<'_>) -> bool {
         return false;
     };
 
-    if expr_type != static_data.ty {
+    if expr_type.ty != static_data.ty.ty {
         eprintln!("Static type != expression type: {static_data:?}");
         return false;
     }
@@ -84,7 +85,7 @@ fn check_function(ctx: &MIRContext<'_>, function: &MIRFunction<'_>) -> bool {
                         return false;
                     };
 
-                    if ty != var_ty {
+                    if ty.ty != var_ty.ty {
                         eprintln!(
                             "Expression returns {ty:?} but variable is of type {:?}",
                             var_ty
@@ -109,17 +110,17 @@ fn check_function(ctx: &MIRContext<'_>, function: &MIRFunction<'_>) -> bool {
 /// Checks whether the expression is valid.
 /// If it isn't, errors are reported.
 /// If it is, the expression's type is returned.
-fn check_expression(
-    ctx: &MIRContext<'_>,
-    expr: &MIRExpression<'_>,
-    scope: Option<&Scope<'_>>,
-) -> Option<MIRType> {
+fn check_expression<'a>(
+    ctx: &MIRContext<'a>,
+    expr: &MIRExpression<'a>,
+    scope: Option<&Scope<'a>>,
+) -> Option<MIRTypeLiteral<'a>> {
     match expr {
         MIRExpression::Add(left, right, ..) => {
             let t_left = check_expression(ctx, left, scope)?;
             let t_right = check_expression(ctx, right, scope)?;
 
-            if t_left != t_right {
+            if t_left.ty != t_right.ty {
                 eprintln!("Addition failed: left type != right: {expr:?}");
                 return None;
             }
@@ -130,7 +131,7 @@ fn check_expression(
             let t_left = check_expression(ctx, left, scope)?;
             let t_right = check_expression(ctx, right, scope)?;
 
-            if t_left != t_right {
+            if t_left.ty != t_right.ty {
                 eprintln!("Subtraction failed: left type != right: {expr:?}");
                 return None;
             }
@@ -141,7 +142,7 @@ fn check_expression(
             let t_left = check_expression(ctx, left, scope)?;
             let t_right = check_expression(ctx, right, scope)?;
 
-            if t_left != t_right {
+            if t_left.ty != t_right.ty {
                 eprintln!("Multiplication failed: left type != right: {expr:?}");
                 return None;
             }
@@ -152,7 +153,7 @@ fn check_expression(
             let t_left = check_expression(ctx, left, scope)?;
             let t_right = check_expression(ctx, right, scope)?;
 
-            if t_left != t_right {
+            if t_left.ty != t_right.ty {
                 eprintln!("Division failed: left type != right: {expr:?}");
                 return None;
             }
@@ -182,11 +183,14 @@ fn check_expression(
             eprintln!("Variable doesn't exist: {expr:?}");
             None
         }
-        MIRExpression::Number(num, ..) => {
+        MIRExpression::Number(num, span) => {
             // TODO: Handle negatives.
             assert!(*num >= 0);
 
-            Some(MIRType::U32)
+            Some(MIRTypeLiteral {
+                ty: MIRType::U32,
+                span: Some(span.clone()),
+            })
         }
     }
 }
