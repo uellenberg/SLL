@@ -1,6 +1,8 @@
+mod expr;
 pub mod lower;
 mod type_check;
 
+use crate::mir::expr::const_eval;
 use crate::mir::type_check::type_check;
 use std::collections::HashMap;
 
@@ -9,6 +11,10 @@ use std::collections::HashMap;
 /// whether it was successful.
 pub fn visit_mir(program: &mut MIRProgram<'_>) -> bool {
     if !type_check(program) {
+        return false;
+    }
+
+    if !const_eval(program) {
         return false;
     }
 
@@ -118,7 +124,7 @@ pub enum MIRStatement<'a> {
 
 /// An expression that evaluates to some
 /// value.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MIRExpression<'a> {
     /// Addition.
     Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
