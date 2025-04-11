@@ -1,4 +1,4 @@
-mod lower;
+pub mod lower;
 
 use std::collections::HashMap;
 
@@ -32,9 +32,8 @@ pub struct MIRConstant<'a> {
     /// The constant's type.
     pub ty: MIRType,
 
-    // TODO: Add expression handling.
     /// The constant's value.
-    pub value: i64,
+    pub value: MIRExpression<'a>,
 }
 
 /// A static variable.
@@ -48,9 +47,8 @@ pub struct MIRStatic<'a> {
     /// The constant's type.
     pub ty: MIRType,
 
-    // TODO: Add expression handling.
     /// The constant's value.
-    pub value: i64,
+    pub value: MIRExpression<'a>,
 }
 
 /// A function.
@@ -100,10 +98,32 @@ pub enum MIRStatement<'a> {
         /// Is the variable's name.
         name: &'a str,
 
-        // TODO: Make this an actual expression.
         /// Is the expression to set it to.
-        value: i64,
+        value: MIRExpression<'a>,
     },
+}
+
+/// An expression that evaluates to some
+/// value.
+#[derive(Debug)]
+pub enum MIRExpression<'a> {
+    /// Addition.
+    Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Subtraction.
+    Sub(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Multiplication.
+    Mul(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Division.
+    Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Number literal.
+    Number(i64),
+
+    /// Variable access.
+    Variable(&'a str),
 }
 
 /// The type of data a variable represents.

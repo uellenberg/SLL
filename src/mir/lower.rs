@@ -1,6 +1,7 @@
 use crate::ir::{IRConstant, IRFunction, IRProgram, IRStatement, IRStatic, IRType, IRVariable};
 use crate::mir::{
-    MIRConstant, MIRFunction, MIRProgram, MIRStatement, MIRStatic, MIRType, MIRVariable,
+    MIRConstant, MIRExpression, MIRFunction, MIRProgram, MIRStatement, MIRStatic, MIRType,
+    MIRVariable,
 };
 
 /// Converts a MIRProgram into an IRProgram.
@@ -53,28 +54,37 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
             IRStatement::CreateVariable(lower_variable(mir_var))
         }
         MIRStatement::DropVariable(name) => IRStatement::DropVariable(name),
-        MIRStatement::SetVariable { name, value } => IRStatement::SetVariableNum {
+        MIRStatement::SetVariable {
             name,
-            value: *value,
-        },
+            value: MIRExpression::Number(num),
+        } => IRStatement::SetVariableNum { name, value: *num },
+        other => panic!("Unhandled statement during MIR lowering: {other:?}"),
     }
 }
 
 /// Converts MIRConstant to IRConstant.
 fn lower_constant<'a>(mir_constant: &MIRConstant<'a>) -> IRConstant<'a> {
+    let MIRExpression::Number(num) = mir_constant.value else {
+        panic!("Non-numeric expression during MIR lowering: {mir_constant:?}");
+    };
+
     IRConstant {
         name: mir_constant.name,
         ty: lower_type(&mir_constant.ty),
-        value: mir_constant.value,
+        value: num,
     }
 }
 
 /// Converts MIRStatic to IRStatic.
 fn lower_static<'a>(mir_static: &MIRStatic<'a>) -> IRStatic<'a> {
+    let MIRExpression::Number(num) = mir_static.value else {
+        panic!("Non-numeric expression during MIR lowering: {mir_static:?}");
+    };
+
     IRStatic {
         name: mir_static.name,
         ty: lower_type(&mir_static.ty),
-        value: mir_static.value,
+        value: num,
     }
 }
 

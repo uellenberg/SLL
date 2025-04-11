@@ -4,9 +4,9 @@ program = _{
     EOI
 }
 
-staticDeclaration = { "static" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ number ~ ";"  }
+staticDeclaration = { "static" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ expression ~ ";"  }
 
-constDeclaration = { "const" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ number ~ ";"  }
+constDeclaration = { "const" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ expression ~ ";"  }
 
 functionDeclaration = {
     "function" ~
@@ -40,9 +40,29 @@ functionStatement = _{
 
 createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
 
-setVariable = { identifier ~ "=" ~ number ~ ";" }
+setVariable = { identifier ~ "=" ~ expression ~ ";" }
 
 variableType = { "u32" | "()" }
+
+expression = { addition }
+
+addition = {
+    multiplication ~ additionOp ~ addition
+    | multiplication
+}
+
+multiplication = {
+    primary ~ multiplicationOp ~ multiplication
+    | primary
+}
+
+primary = {
+    number | identifier | "(" ~ expression ~ ")"
+}
+
+additionOp = { "+" | "-" }
+
+multiplicationOp = { "*" | "/" }
 
 identifier = @{
     (ASCII_ALPHA | "_") ~
