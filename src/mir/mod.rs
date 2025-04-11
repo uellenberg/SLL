@@ -1,5 +1,6 @@
 mod expr;
 pub mod lower;
+mod scope;
 mod type_check;
 
 use crate::mir::expr::{const_eval, const_optimize_expr};
@@ -94,7 +95,7 @@ pub struct MIRFunction<'a> {
 }
 
 /// A variable inside a function.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MIRVariable<'a> {
     /// The variable's name.
     pub name: &'a str,
