@@ -3,6 +3,8 @@ const b: u32 = 5 + a;
 
 static test: u32 = b + 5 - 2 * (5 - 8);
 
+static test: u32 = 5;
+
 function main() {
     let v: ();
     test = v;

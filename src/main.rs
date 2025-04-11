@@ -1,16 +1,17 @@
 use crate::mir::lower::mir_to_ir;
-use crate::mir::visit_mir;
-use crate::parser::parse_string;
-use std::fs;
+use crate::mir::{MIRProgram, visit_mir};
+use crate::parser::parse_file;
+use ariadne::FileCache;
 
 mod ir;
 mod mir;
 mod parser;
 
 fn main() {
-    let content = fs::read_to_string("./test/simple.sll").unwrap();
+    let mut mir = MIRProgram::default();
+    let mut cache = FileCache::default();
 
-    let mut mir = parse_string(&content).unwrap();
+    parse_file("./test/simple.sll".as_ref(), &mut mir, &mut cache).unwrap();
     if !visit_mir(&mut mir) {
         return;
     }

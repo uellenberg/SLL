@@ -5,8 +5,9 @@ mod type_check;
 
 use crate::mir::expr::{const_eval, const_optimize_expr};
 use crate::mir::type_check::type_check;
-use pest::Span;
 use std::collections::HashMap;
+use std::ops::Range;
+use std::path::Path;
 
 /// Applies all MIR phases and
 /// optimizations, returning
@@ -27,11 +28,35 @@ pub fn visit_mir(program: &mut MIRProgram<'_>) -> bool {
     true
 }
 
+#[derive(Clone, Debug)]
+pub struct Span<'a>(&'a Path, Range<usize>);
+
+/// Converts a pest Span to an ariadne Span.
+pub fn to_span<'a>(file: &'a Path, span: pest::Span<'_>) -> Span<'a> {
+    Span(file, span.start()..span.end())
+}
+
+impl<'a> ariadne::Span for Span<'a> {
+    type SourceId = Path;
+
+    fn source(&self) -> &Self::SourceId {
+        self.0
+    }
+
+    fn start(&self) -> usize {
+        self.1.start
+    }
+
+    fn end(&self) -> usize {
+        self.1.end
+    }
+}
+
 /// An entire program.
 /// Every name must be unique
 /// among all named items contained
 /// inside here.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MIRProgram<'a> {
     /// A list of constants in the program.
     /// Name -> Constant data.
