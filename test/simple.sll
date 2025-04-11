@@ -4,5 +4,5 @@ const b: u32 = 5 + a;
 static test: u32 = b + 5 - 2 * (5 - 8);
 
 function main() {
-    test = 1;
+    test = 1 + b;
 }

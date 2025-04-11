@@ -1,5 +1,5 @@
-use crate::mir::{MIRExpression, MIRProgram};
-use std::collections::HashSet;
+use crate::mir::{MIRConstant, MIRExpression, MIRProgram, MIRStatement};
+use std::collections::{HashMap, HashSet};
 
 /// Attempts to evaluate all constants and statics, returning
 /// whether it was successful.
@@ -19,6 +19,27 @@ pub fn const_eval(program: &mut MIRProgram<'_>) -> bool {
     for static_name in static_names {
         if !eval_static(program, static_name) {
             return false;
+        }
+    }
+
+    true
+}
+
+/// Attempts to optimize all expressions
+/// in every function, returning
+/// whether it was successful.
+/// This MUST occur after const evaluation.
+pub fn const_optimize_expr(program: &mut MIRProgram<'_>) -> bool {
+    for function in program.functions.values_mut() {
+        for statement in function.body.iter_mut() {
+            match statement {
+                // No expressions.
+                MIRStatement::CreateVariable(_) => {}
+                MIRStatement::DropVariable(_) => {}
+                MIRStatement::SetVariable { value, .. } => {
+                    *value = reduce_expr_simple(&program.constants, &value.clone());
+                }
+            }
         }
     }
 
@@ -84,18 +105,7 @@ fn eval_constant<'a>(
 /// Evaluation means that it's reduced to a primitive.
 fn eval_static<'a>(program: &mut MIRProgram<'a>, constant_name: &'a str) -> bool {
     let old_expr = program.statics[constant_name].value.clone();
-    let reduced = reduce_expr(&old_expr, &mut |name| {
-        // Ensure the constant exists.
-        if !program.constants.contains_key(name) {
-            return None;
-        }
-
-        // Constants are guaranteed to already be evaluated.
-
-        // No need to validate that this is a primitive here,
-        // since eval_constant already does that.
-        Some(program.constants[name].value.clone())
-    });
+    let reduced = reduce_expr_simple(&program.constants, &old_expr);
 
     // Statics must be fully reduced.
     if !matches!(reduced, MIRExpression::Number(_)) {
@@ -106,6 +116,27 @@ fn eval_static<'a>(program: &mut MIRProgram<'a>, constant_name: &'a str) -> bool
     program.statics.get_mut(constant_name).unwrap().value = reduced;
 
     true
+}
+
+/// Expression reduction that uses
+/// the values inside constants.
+/// This MUST be run after constant evaluation.
+fn reduce_expr_simple<'a>(
+    constants: &HashMap<&'a str, MIRConstant<'a>>,
+    expr: &MIRExpression<'a>,
+) -> MIRExpression<'a> {
+    reduce_expr(&expr, &mut |name| {
+        // Ensure the constant exists.
+        if !constants.contains_key(name) {
+            return None;
+        }
+
+        // Constants are guaranteed to already be evaluated.
+
+        // No need to validate that this is a primitive here,
+        // since eval_constant already does that.
+        Some(constants[name].value.clone())
+    })
 }
 
 /// Attempts to reduce an expression

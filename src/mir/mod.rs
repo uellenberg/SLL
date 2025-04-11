@@ -2,7 +2,7 @@ mod expr;
 pub mod lower;
 mod type_check;
 
-use crate::mir::expr::const_eval;
+use crate::mir::expr::{const_eval, const_optimize_expr};
 use crate::mir::type_check::type_check;
 use std::collections::HashMap;
 
@@ -15,6 +15,10 @@ pub fn visit_mir(program: &mut MIRProgram<'_>) -> bool {
     }
 
     if !const_eval(program) {
+        return false;
+    }
+
+    if !const_optimize_expr(program) {
         return false;
     }
 
