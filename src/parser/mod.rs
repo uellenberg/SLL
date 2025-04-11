@@ -1,11 +1,9 @@
 pub mod file_cache;
 
 use crate::mir::{
-    MIRConstant, MIRExpression, MIRFunction, MIRProgram, MIRStatement, MIRStatic, MIRType,
+    MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
     MIRVariable, Span, to_span,
 };
-use crate::parser::file_cache::FileCache;
-use ariadne::Cache;
 use pest::Parser;
 use pest::error::Error;
 use pest::iterators::Pair;
@@ -17,14 +15,10 @@ use std::path::Path;
 struct SLLParser;
 
 /// Parses a file into MIR.
-pub fn parse_file<'a>(
-    location: &'a Path,
-    program: &mut MIRProgram<'a>,
-    cache: &FileCache,
-) -> Result<(), Error<Rule>> {
-    let data = cache.get(location).unwrap();
+pub fn parse_file<'a>(location: &'a Path, ctx: &mut MIRContext<'a>) -> Result<(), Error<Rule>> {
+    let data = ctx.file_cache.get(location).unwrap();
 
-    parse_data(location, data, program, cache)?;
+    parse_data(location, data, ctx)?;
 
     Ok(())
 }
@@ -33,8 +27,7 @@ pub fn parse_file<'a>(
 fn parse_data<'a>(
     location: &'a Path,
     data: &'a str,
-    program: &mut MIRProgram<'a>,
-    cache: &FileCache,
+    ctx: &mut MIRContext<'a>,
 ) -> Result<(), Error<Rule>> {
     let ast = SLLParser::parse(Rule::program, data)?;
 
@@ -42,21 +35,23 @@ fn parse_data<'a>(
         match pair.as_rule() {
             Rule::constDeclaration => {
                 let constant = parse_constant(location, pair);
-                verify_no_duplicates(&program, &cache, constant.name, &constant.span);
+                verify_no_duplicates(&ctx, constant.name, &constant.span);
 
-                program.constants.insert(constant.name, constant);
+                ctx.program.constants.insert(constant.name, constant);
             }
             Rule::staticDeclaration => {
                 let static_data = parse_static(location, pair);
-                verify_no_duplicates(&program, &cache, static_data.name, &static_data.span);
+                verify_no_duplicates(&ctx, static_data.name, &static_data.span);
 
-                program.statics.insert(static_data.name, static_data);
+                ctx.program.statics.insert(static_data.name, static_data);
             }
             Rule::functionDeclaration => {
                 let function_data = parse_function(location, pair);
-                verify_no_duplicates(&program, &cache, function_data.name, &function_data.span);
+                verify_no_duplicates(&ctx, function_data.name, &function_data.span);
 
-                program.functions.insert(function_data.name, function_data);
+                ctx.program
+                    .functions
+                    .insert(function_data.name, function_data);
             }
             Rule::EOI => {}
             _ => unreachable!(),
@@ -66,18 +61,13 @@ fn parse_data<'a>(
     Ok(())
 }
 
-fn verify_no_duplicates<'a>(
-    program: &MIRProgram<'a>,
-    cache: &FileCache,
-    name: &'a str,
-    span: &Span<'a>,
-) {
+fn verify_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>) {
     let defined_span;
-    if let Some(var) = program.statics.get(name) {
+    if let Some(var) = ctx.program.statics.get(name) {
         defined_span = var.span.clone();
-    } else if let Some(var) = program.constants.get(name) {
+    } else if let Some(var) = ctx.program.constants.get(name) {
         defined_span = var.span.clone();
-    } else if let Some(var) = program.functions.get(name) {
+    } else if let Some(var) = ctx.program.functions.get(name) {
         defined_span = var.span.clone();
     } else {
         // No duplicates.
@@ -105,7 +95,7 @@ fn verify_no_duplicates<'a>(
         )
         .finish()
         // TODO: How to avoid this clone?
-        .eprint(cache.clone())
+        .eprint(ctx.file_cache.clone())
         .unwrap();
 
     // TODO: Remove this somehow.

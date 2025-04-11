@@ -1,23 +1,23 @@
-use crate::mir::{MIRConstant, MIRExpression, MIRProgram, MIRStatement};
+use crate::mir::{MIRConstant, MIRContext, MIRExpression, MIRStatement};
 use std::collections::{HashMap, HashSet};
 
 /// Attempts to evaluate all constants and statics, returning
 /// whether it was successful.
-pub fn const_eval(program: &mut MIRProgram<'_>) -> bool {
+pub fn const_eval(ctx: &mut MIRContext<'_>) -> bool {
     let mut current_evals = HashSet::new();
     let mut done_evals = HashSet::new();
 
-    let const_names = program.constants.keys().cloned().collect::<Vec<_>>();
-    let static_names = program.statics.keys().cloned().collect::<Vec<_>>();
+    let const_names = ctx.program.constants.keys().cloned().collect::<Vec<_>>();
+    let static_names = ctx.program.statics.keys().cloned().collect::<Vec<_>>();
 
     for constant in const_names {
-        if !eval_constant(program, constant, &mut current_evals, &mut done_evals) {
+        if !eval_constant(ctx, constant, &mut current_evals, &mut done_evals) {
             return false;
         }
     }
 
     for static_name in static_names {
-        if !eval_static(program, static_name) {
+        if !eval_static(ctx, static_name) {
             return false;
         }
     }
@@ -29,15 +29,15 @@ pub fn const_eval(program: &mut MIRProgram<'_>) -> bool {
 /// in every function, returning
 /// whether it was successful.
 /// This MUST occur after const evaluation.
-pub fn const_optimize_expr(program: &mut MIRProgram<'_>) -> bool {
-    for function in program.functions.values_mut() {
+pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
+    for function in ctx.program.functions.values_mut() {
         for statement in function.body.iter_mut() {
             match statement {
                 // No expressions.
                 MIRStatement::CreateVariable(_, ..) => {}
                 MIRStatement::DropVariable(_, ..) => {}
                 MIRStatement::SetVariable { value, .. } => {
-                    *value = reduce_expr_simple(&program.constants, &value.clone());
+                    *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
                 }
             }
         }
@@ -50,7 +50,7 @@ pub fn const_optimize_expr(program: &mut MIRProgram<'_>) -> bool {
 /// whether it was successful.
 /// Evaluation means that it's reduced to a primitive.
 fn eval_constant<'a>(
-    program: &mut MIRProgram<'a>,
+    ctx: &mut MIRContext<'a>,
     constant_name: &'a str,
     current_evals: &mut HashSet<&'a str>,
     done_evals: &mut HashSet<&'a str>,
@@ -68,21 +68,21 @@ fn eval_constant<'a>(
 
     current_evals.insert(constant_name);
 
-    let old_expr = program.constants[constant_name].value.clone();
+    let old_expr = ctx.program.constants[constant_name].value.clone();
     let reduced = reduce_expr(&old_expr, &mut |name| {
         // Ensure the constant exists.
-        if !program.constants.contains_key(name) {
+        if !ctx.program.constants.contains_key(name) {
             return None;
         }
 
         // Ensure the constant is evaluated.
-        if !eval_constant(program, name, current_evals, done_evals) {
+        if !eval_constant(ctx, name, current_evals, done_evals) {
             return None;
         }
 
         // No need to validate that this is a primitive here,
         // since eval_constant already does that.
-        Some(program.constants[name].value.clone())
+        Some(ctx.program.constants[name].value.clone())
     });
 
     // Constants must be fully reduced.
@@ -91,7 +91,7 @@ fn eval_constant<'a>(
         return false;
     }
 
-    program.constants.get_mut(constant_name).unwrap().value = reduced;
+    ctx.program.constants.get_mut(constant_name).unwrap().value = reduced;
 
     current_evals.remove(constant_name);
     done_evals.insert(constant_name);
@@ -103,9 +103,9 @@ fn eval_constant<'a>(
 /// whether it was successful.
 /// This MUST occur after constant evaluation.
 /// Evaluation means that it's reduced to a primitive.
-fn eval_static<'a>(program: &mut MIRProgram<'a>, constant_name: &'a str) -> bool {
-    let old_expr = program.statics[constant_name].value.clone();
-    let reduced = reduce_expr_simple(&program.constants, &old_expr);
+fn eval_static<'a>(ctx: &mut MIRContext<'a>, constant_name: &'a str) -> bool {
+    let old_expr = ctx.program.statics[constant_name].value.clone();
+    let reduced = reduce_expr_simple(&ctx.program.constants, &old_expr);
 
     // Statics must be fully reduced.
     if !matches!(reduced, MIRExpression::Number(_, ..)) {
@@ -113,7 +113,7 @@ fn eval_static<'a>(program: &mut MIRProgram<'a>, constant_name: &'a str) -> bool
         return false;
     }
 
-    program.statics.get_mut(constant_name).unwrap().value = reduced;
+    ctx.program.statics.get_mut(constant_name).unwrap().value = reduced;
 
     true
 }

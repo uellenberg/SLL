@@ -5,23 +5,35 @@ mod type_check;
 
 use crate::mir::expr::{const_eval, const_optimize_expr};
 use crate::mir::type_check::type_check;
+use crate::parser::file_cache::FileCache;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
 
+/// Context that can be used
+/// throughout the MIR processing.
+#[derive(Debug, Default)]
+pub struct MIRContext<'a> {
+    /// The current program.
+    pub program: MIRProgram<'a>,
+
+    /// A cache of files that have been loaded.
+    pub file_cache: FileCache,
+}
+
 /// Applies all MIR phases and
 /// optimizations, returning
 /// whether it was successful.
-pub fn visit_mir(program: &mut MIRProgram<'_>) -> bool {
-    if !type_check(program) {
+pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
+    if !type_check(ctx) {
         return false;
     }
 
-    if !const_eval(program) {
+    if !const_eval(ctx) {
         return false;
     }
 
-    if !const_optimize_expr(program) {
+    if !const_optimize_expr(ctx) {
         return false;
     }
 
