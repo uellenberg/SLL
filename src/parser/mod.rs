@@ -1,8 +1,11 @@
+pub mod file_cache;
+
 use crate::mir::{
     MIRConstant, MIRExpression, MIRFunction, MIRProgram, MIRStatement, MIRStatic, MIRType,
     MIRVariable, Span, to_span,
 };
-use ariadne::{Cache, FileCache};
+use crate::parser::file_cache::FileCache;
+use ariadne::Cache;
 use pest::Parser;
 use pest::error::Error;
 use pest::iterators::Pair;
@@ -17,11 +20,9 @@ struct SLLParser;
 pub fn parse_file<'a>(
     location: &'a Path,
     program: &mut MIRProgram<'a>,
-    cache: &mut FileCache,
+    cache: &FileCache,
 ) -> Result<(), Error<Rule>> {
-    // Leaking here is okay, since we want to keep
-    // the content in memory forever anyway.
-    let data = cache.fetch(location).unwrap().text().to_string().leak();
+    let data = cache.get(location).unwrap();
 
     parse_data(location, data, program, cache)?;
 

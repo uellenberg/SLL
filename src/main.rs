@@ -1,7 +1,7 @@
 use crate::mir::lower::mir_to_ir;
 use crate::mir::{MIRProgram, visit_mir};
+use crate::parser::file_cache::FileCache;
 use crate::parser::parse_file;
-use ariadne::FileCache;
 
 mod ir;
 mod mir;

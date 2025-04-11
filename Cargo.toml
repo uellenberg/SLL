@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 ariadne = { version = "0.5.1", features = ["auto-color"] }
+parking_lot = "0.12.3"
 pest = "2.8.0"
 pest_derive = "2.8.0"
