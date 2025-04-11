@@ -9,7 +9,10 @@ mod parser;
 fn main() {
     let mut mir_ctx = MIRContext::default();
 
-    parse_file("./test/simple.sll".as_ref(), &mut mir_ctx).unwrap();
+    if !parse_file("./test/simple.sll".as_ref(), &mut mir_ctx) {
+        return;
+    }
+
     if !visit_mir(&mut mir_ctx) {
         return;
     }

@@ -4,6 +4,7 @@ use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
     MIRTypeLiteral, MIRVariable, Span, to_span,
 };
+use ariadne::{ColorGenerator, Label, Report, ReportKind};
 use pest::Parser;
 use pest::error::Error;
 use pest::iterators::Pair;
@@ -14,40 +15,48 @@ use std::path::Path;
 #[grammar = "parser/program.pest"]
 struct SLLParser;
 
-/// Parses a file into MIR.
-pub fn parse_file<'a>(location: &'a Path, ctx: &mut MIRContext<'a>) -> Result<(), Error<Rule>> {
+/// Parses a file into MIR,
+/// returning whether it was successful.
+pub fn parse_file<'a>(location: &'a Path, ctx: &mut MIRContext<'a>) -> bool {
     let data = ctx.file_cache.get(location).unwrap();
 
-    parse_data(location, data, ctx)?;
-
-    Ok(())
+    parse_data(location, data, ctx)
 }
 
-/// Parses some data file into MIR.
-fn parse_data<'a>(
-    location: &'a Path,
-    data: &'a str,
-    ctx: &mut MIRContext<'a>,
-) -> Result<(), Error<Rule>> {
-    let ast = SLLParser::parse(Rule::program, data)?;
+/// Parses some data file into MIR,
+/// returning whether it was successful.
+fn parse_data<'a>(location: &'a Path, data: &'a str, ctx: &mut MIRContext<'a>) -> bool {
+    let ast = match SLLParser::parse(Rule::program, data) {
+        Ok(ast) => ast,
+        Err(err) => {
+            eprintln!("{err}");
+            return false;
+        }
+    };
 
     for pair in ast {
         match pair.as_rule() {
             Rule::constDeclaration => {
                 let constant = parse_constant(location, pair);
-                verify_no_duplicates(&ctx, constant.name, &constant.span);
+                if !check_no_duplicates(&ctx, constant.name, &constant.span) {
+                    return false;
+                }
 
                 ctx.program.constants.insert(constant.name, constant);
             }
             Rule::staticDeclaration => {
                 let static_data = parse_static(location, pair);
-                verify_no_duplicates(&ctx, static_data.name, &static_data.span);
+                if !check_no_duplicates(&ctx, static_data.name, &static_data.span) {
+                    return false;
+                }
 
                 ctx.program.statics.insert(static_data.name, static_data);
             }
             Rule::functionDeclaration => {
                 let function_data = parse_function(location, pair);
-                verify_no_duplicates(&ctx, function_data.name, &function_data.span);
+                if !check_no_duplicates(&ctx, function_data.name, &function_data.span) {
+                    return false;
+                }
 
                 ctx.program
                     .functions
@@ -58,10 +67,10 @@ fn parse_data<'a>(
         }
     }
 
-    Ok(())
+    true
 }
 
-fn verify_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>) {
+fn check_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>) -> bool {
     let defined_span;
     if let Some(var) = ctx.program.statics.get(name) {
         defined_span = var.span.clone();
@@ -71,10 +80,8 @@ fn verify_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>
         defined_span = var.span.clone();
     } else {
         // No duplicates.
-        return;
+        return true;
     }
-
-    use ariadne::{Color, ColorGenerator, Fmt, Label, Report, ReportKind, Source};
 
     let mut colors = ColorGenerator::new();
 
@@ -94,12 +101,10 @@ fn verify_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>
                 .with_color(cur),
         )
         .finish()
-        // TODO: How to avoid this clone?
         .eprint(ctx.file_cache.clone())
         .unwrap();
 
-    // TODO: Remove this somehow.
-    panic!();
+    false
 }
 
 fn parse_static<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRStatic<'a> {
