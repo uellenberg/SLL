@@ -1,6 +1,7 @@
 use crate::parser::parse_string;
 use std::fs;
 
+mod ir;
 mod mir;
 mod parser;
 

@@ -49,7 +49,7 @@ pub fn parse_string(content: &str) -> Result<MIRProgram, Error<Rule>> {
     todo!()
 }
 
-fn verify_no_duplicates(program: &MIRProgram, name: &str) {
+fn verify_no_duplicates<'a>(program: &MIRProgram<'a>, name: &'a str) {
     if !program.statics.contains_key(name)
         && !program.constants.contains_key(name)
         && !program.functions.contains_key(name)
@@ -60,7 +60,7 @@ fn verify_no_duplicates(program: &MIRProgram, name: &str) {
     panic!("Duplicate identifier: {}", name);
 }
 
-fn parse_static(value: Pair<Rule>) -> MIRStatic {
+fn parse_static(value: Pair<'_, Rule>) -> MIRStatic<'_> {
     assert_eq!(value.as_rule(), Rule::staticDeclaration);
 
     let mut data = value.into_inner();
@@ -76,7 +76,7 @@ fn parse_static(value: Pair<Rule>) -> MIRStatic {
     }
 }
 
-fn parse_constant(value: Pair<Rule>) -> MIRConstant {
+fn parse_constant(value: Pair<'_, Rule>) -> MIRConstant<'_> {
     assert_eq!(value.as_rule(), Rule::constDeclaration);
 
     let mut data = value.into_inner();
@@ -92,7 +92,7 @@ fn parse_constant(value: Pair<Rule>) -> MIRConstant {
     }
 }
 
-fn parse_function(value: Pair<Rule>) -> MIRFunction {
+fn parse_function(value: Pair<'_, Rule>) -> MIRFunction<'_> {
     assert_eq!(value.as_rule(), Rule::functionDeclaration);
 
     let mut data = value.into_inner();
@@ -127,7 +127,7 @@ fn parse_function(value: Pair<Rule>) -> MIRFunction {
     unreachable!();
 }
 
-fn parse_function_body(value: Pair<Rule>) -> Vec<MIRStatement> {
+fn parse_function_body(value: Pair<'_, Rule>) -> Vec<MIRStatement<'_>> {
     assert_eq!(value.as_rule(), Rule::functionBody);
 
     let mut body = vec![];
@@ -163,7 +163,7 @@ fn parse_function_body(value: Pair<Rule>) -> Vec<MIRStatement> {
     body
 }
 
-fn parse_function_args(value: Pair<Rule>) -> Vec<MIRVariable> {
+fn parse_function_args(value: Pair<'_, Rule>) -> Vec<MIRVariable<'_>> {
     assert_eq!(value.as_rule(), Rule::functionArgs);
 
     let mut args = vec![];
@@ -188,7 +188,7 @@ fn parse_function_args(value: Pair<Rule>) -> Vec<MIRVariable> {
     args
 }
 
-fn parse_type(value: Pair<Rule>) -> MIRType {
+fn parse_type(value: Pair<'_, Rule>) -> MIRType {
     assert_eq!(value.as_rule(), Rule::variableType);
 
     match value.as_str() {
@@ -198,7 +198,7 @@ fn parse_type(value: Pair<Rule>) -> MIRType {
     }
 }
 
-fn parse_number(value: Pair<Rule>) -> i64 {
+fn parse_number(value: Pair<'_, Rule>) -> i64 {
     assert_eq!(value.as_rule(), Rule::number);
 
     value.as_str().parse::<i64>().unwrap()
