@@ -1,0 +1,5 @@
+static test: u32 = 0;
+
+function main() {
+    test = 1;
+}

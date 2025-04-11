@@ -1,0 +1,60 @@
+program = _{
+    SOI ~
+    (staticDeclaration | constDeclaration | functionDeclaration)* ~
+    EOI
+}
+
+staticDeclaration = { "static" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ number ~ ";"  }
+
+constDeclaration = { "const" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ number ~ ";"  }
+
+functionDeclaration = {
+    "function" ~
+    space ~
+    identifier ~
+    "(" ~
+    functionArgs? ~
+    ")" ~
+    functionReturn? ~
+    "{" ~
+    functionBody ~
+    "}"
+}
+
+functionArgs = {
+    functionArg ~ "," ~ functionArg* ~ ","?
+}
+
+functionReturn = {
+    "->" ~ variableType
+}
+
+functionArg = { identifier ~ ":" ~ variableType }
+
+functionBody = { functionStatement+ }
+
+functionStatement = _{
+    createVariable
+    | setVariable
+}
+
+createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
+
+setVariable = { identifier ~ "=" ~ number ~ ";" }
+
+variableType = { "u32" | "()" }
+
+identifier = @{
+    (ASCII_ALPHA | "_") ~
+    (ASCII_ALPHA | ASCII_DIGIT | "_")*
+}
+
+number = @{
+    "-"? ~
+    ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~
+    ("." ~ ASCII_DIGIT*)?
+}
+
+space = _{ WHITESPACE* }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
