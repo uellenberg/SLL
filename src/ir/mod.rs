@@ -28,7 +28,7 @@ pub struct IRConstant<'a> {
     pub name: &'a str,
 
     /// The constant's type.
-    pub ty: IRType,
+    pub ty: IRType<'a>,
 
     /// The constant's value.
     pub value: i64,
@@ -43,7 +43,7 @@ pub struct IRStatic<'a> {
     pub name: &'a str,
 
     /// The constant's type.
-    pub ty: IRType,
+    pub ty: IRType<'a>,
 
     /// The constant's value.
     pub value: i64,
@@ -57,7 +57,7 @@ pub struct IRFunction<'a> {
 
     /// The function's return type,
     /// if it returns anything.
-    pub ret_ty: Option<IRType>,
+    pub ret_ty: Option<IRType<'a>>,
 
     /// A list of the arguments that
     /// the function takes in.
@@ -77,7 +77,7 @@ pub struct IRVariable<'a> {
 
     /// The type of the data stored
     /// inside the variable.
-    pub ty: IRType,
+    pub ty: IRType<'a>,
 }
 
 /// A statement inside a function's
@@ -104,7 +104,10 @@ pub enum IRStatement<'a> {
 
 /// The type of data a variable represents.
 #[derive(Debug, Eq, PartialEq)]
-pub enum IRType {
+pub enum IRType<'a> {
     /// Unsigned 32-bit integer.
     U32,
+
+    /// A named type (struct).
+    Named(&'a str),
 }

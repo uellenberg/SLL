@@ -208,11 +208,26 @@ pub enum MIRExpression<'a> {
     Variable(&'a str, Span<'a>),
 }
 
+impl<'a> MIRExpression<'a> {
+    /// Gets the span associated
+    /// with the expression.
+    pub fn span(&self) -> &Span<'a> {
+        match self {
+            MIRExpression::Add(_, _, span) => span,
+            MIRExpression::Sub(_, _, span) => span,
+            MIRExpression::Mul(_, _, span) => span,
+            MIRExpression::Div(_, _, span) => span,
+            MIRExpression::Number(_, span) => span,
+            MIRExpression::Variable(_, span) => span,
+        }
+    }
+}
+
 /// A type written out as text.
 #[derive(Debug, Clone)]
 pub struct MIRTypeLiteral<'a> {
     /// The type represented by the literal.
-    pub ty: MIRType,
+    pub ty: MIRType<'a>,
 
     /// The literal's span.
     /// This type is sometimes
@@ -225,10 +240,23 @@ pub struct MIRTypeLiteral<'a> {
 
 /// The type of data a variable represents.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum MIRType {
+pub enum MIRType<'a> {
     /// Unsigned 32-bit integer.
     U32,
 
     /// Unit type (void).
     Unit,
+
+    /// A named type (struct).
+    Named(&'a str),
+}
+
+impl<'a> From<MIRType<'a>> for &'a str {
+    fn from(value: MIRType<'a>) -> Self {
+        match value {
+            MIRType::U32 => "u32",
+            MIRType::Unit => "()",
+            MIRType::Named(val) => val,
+        }
+    }
 }

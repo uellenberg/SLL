@@ -32,10 +32,11 @@ pub fn mir_to_ir<'a>(program: &MIRProgram<'a>) -> IRProgram<'a> {
 }
 
 /// Converts MIRType to IRType.
-fn lower_type(mir_type: &MIRType) -> IRType {
+fn lower_type<'a>(mir_type: &MIRType<'a>) -> IRType<'a> {
     match mir_type {
         MIRType::U32 => IRType::U32,
         MIRType::Unit => unreachable!("Unit type does not exist in IR!"),
+        MIRType::Named(val) => IRType::Named(val),
     }
 }
 
@@ -92,9 +93,9 @@ fn lower_static<'a>(mir_static: &MIRStatic<'a>) -> IRStatic<'a> {
 /// Converts MIRFunction to IRFunction.
 fn lower_function<'a>(mir_function: &MIRFunction<'a>) -> IRFunction<'a> {
     // Unit means no return.
-    let ir_ret_ty = match mir_function.ret_ty.ty {
+    let ir_ret_ty = match &mir_function.ret_ty.ty {
         MIRType::Unit => None,
-        MIRType::U32 => Some(IRType::U32),
+        other => Some(lower_type(other)),
     };
 
     let ir_args = mir_function.args.iter().map(lower_variable).collect();
