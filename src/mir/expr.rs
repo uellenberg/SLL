@@ -34,8 +34,8 @@ pub fn const_optimize_expr(program: &mut MIRProgram<'_>) -> bool {
         for statement in function.body.iter_mut() {
             match statement {
                 // No expressions.
-                MIRStatement::CreateVariable(_) => {}
-                MIRStatement::DropVariable(_) => {}
+                MIRStatement::CreateVariable(_, ..) => {}
+                MIRStatement::DropVariable(_, ..) => {}
                 MIRStatement::SetVariable { value, .. } => {
                     *value = reduce_expr_simple(&program.constants, &value.clone());
                 }
@@ -86,7 +86,7 @@ fn eval_constant<'a>(
     });
 
     // Constants must be fully reduced.
-    if !matches!(reduced, MIRExpression::Number(_)) {
+    if !matches!(reduced, MIRExpression::Number(_, ..)) {
         eprintln!("Failed to reduce constant to a number: {:?}", &old_expr);
         return false;
     }
@@ -108,7 +108,7 @@ fn eval_static<'a>(program: &mut MIRProgram<'a>, constant_name: &'a str) -> bool
     let reduced = reduce_expr_simple(&program.constants, &old_expr);
 
     // Statics must be fully reduced.
-    if !matches!(reduced, MIRExpression::Number(_)) {
+    if !matches!(reduced, MIRExpression::Number(_, ..)) {
         eprintln!("Failed to reduce static to a number: {:?}", &old_expr);
         return false;
     }
@@ -146,55 +146,57 @@ fn reduce_expr<'a>(
     get_const: &mut impl FnMut(&'a str) -> Option<MIRExpression<'a>>,
 ) -> MIRExpression<'a> {
     match expr {
-        MIRExpression::Add(left, right) => {
+        MIRExpression::Add(left, right, span) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left) = left {
-                if let MIRExpression::Number(right) = right {
-                    return MIRExpression::Number(left + right);
+            if let MIRExpression::Number(left, ..) = left {
+                if let MIRExpression::Number(right, ..) = right {
+                    return MIRExpression::Number(left + right, span.clone());
                 }
             }
 
-            MIRExpression::Add(Box::new(left), Box::new(right))
+            MIRExpression::Add(Box::new(left), Box::new(right), span.clone())
         }
-        MIRExpression::Sub(left, right) => {
+        MIRExpression::Sub(left, right, span) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left) = left {
-                if let MIRExpression::Number(right) = right {
-                    return MIRExpression::Number(left - right);
+            if let MIRExpression::Number(left, ..) = left {
+                if let MIRExpression::Number(right, ..) = right {
+                    return MIRExpression::Number(left - right, span.clone());
                 }
             }
 
-            MIRExpression::Sub(Box::new(left), Box::new(right))
+            MIRExpression::Sub(Box::new(left), Box::new(right), span.clone())
         }
-        MIRExpression::Mul(left, right) => {
+        MIRExpression::Mul(left, right, span) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left) = left {
-                if let MIRExpression::Number(right) = right {
-                    return MIRExpression::Number(left * right);
+            if let MIRExpression::Number(left, ..) = left {
+                if let MIRExpression::Number(right, ..) = right {
+                    return MIRExpression::Number(left * right, span.clone());
                 }
             }
 
-            MIRExpression::Mul(Box::new(left), Box::new(right))
+            MIRExpression::Mul(Box::new(left), Box::new(right), span.clone())
         }
-        MIRExpression::Div(left, right) => {
+        MIRExpression::Div(left, right, span) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left) = left {
-                if let MIRExpression::Number(right) = right {
-                    return MIRExpression::Number(left / right);
+            if let MIRExpression::Number(left, ..) = left {
+                if let MIRExpression::Number(right, ..) = right {
+                    return MIRExpression::Number(left / right, span.clone());
                 }
             }
 
-            MIRExpression::Div(Box::new(left), Box::new(right))
+            MIRExpression::Div(Box::new(left), Box::new(right), span.clone())
         }
-        MIRExpression::Number(val) => MIRExpression::Number(*val),
-        MIRExpression::Variable(name) => get_const(name).unwrap_or(MIRExpression::Variable(name)),
+        MIRExpression::Number(val, span) => MIRExpression::Number(*val, span.clone()),
+        MIRExpression::Variable(name, span) => {
+            get_const(name).unwrap_or(MIRExpression::Variable(name, span.clone()))
+        }
     }
 }

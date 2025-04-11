@@ -64,6 +64,7 @@ fn verify_no_duplicates<'a>(program: &MIRProgram<'a>, name: &'a str) {
 fn parse_static(value: Pair<'_, Rule>) -> MIRStatic<'_> {
     assert_eq!(value.as_rule(), Rule::staticDeclaration);
 
+    let span = value.as_span();
     let mut data = value.into_inner();
 
     let identifier = data.next().unwrap().as_str();
@@ -74,12 +75,14 @@ fn parse_static(value: Pair<'_, Rule>) -> MIRStatic<'_> {
         name: identifier,
         ty,
         value: expr,
+        span,
     }
 }
 
 fn parse_constant(value: Pair<'_, Rule>) -> MIRConstant<'_> {
     assert_eq!(value.as_rule(), Rule::constDeclaration);
 
+    let span = value.as_span();
     let mut data = value.into_inner();
 
     let identifier = data.next().unwrap().as_str();
@@ -90,12 +93,14 @@ fn parse_constant(value: Pair<'_, Rule>) -> MIRConstant<'_> {
         name: identifier,
         ty,
         value: expr,
+        span,
     }
 }
 
 fn parse_function(value: Pair<'_, Rule>) -> MIRFunction<'_> {
     assert_eq!(value.as_rule(), Rule::functionDeclaration);
 
+    let span = value.as_span();
     let mut data = value.into_inner();
 
     let identifier = data.next().unwrap().as_str();
@@ -118,6 +123,7 @@ fn parse_function(value: Pair<'_, Rule>) -> MIRFunction<'_> {
                     args,
                     ret_ty: ret,
                     body: parse_function_body(pair),
+                    span,
                 };
             }
             _ => unreachable!(),
@@ -134,6 +140,8 @@ fn parse_function_body(value: Pair<'_, Rule>) -> Vec<MIRStatement<'_>> {
     let mut body = vec![];
 
     for pair in value.into_inner() {
+        let span = pair.as_span();
+
         match pair.as_rule() {
             Rule::createVariable => {
                 let mut data = pair.into_inner();
@@ -141,10 +149,14 @@ fn parse_function_body(value: Pair<'_, Rule>) -> Vec<MIRStatement<'_>> {
                 let identifier = data.next().unwrap().as_str();
                 let ty = parse_type(data.next().unwrap());
 
-                body.push(MIRStatement::CreateVariable(MIRVariable {
-                    name: identifier,
-                    ty,
-                }));
+                body.push(MIRStatement::CreateVariable(
+                    MIRVariable {
+                        name: identifier,
+                        ty,
+                        span,
+                    },
+                    span,
+                ));
             }
             Rule::setVariable => {
                 let mut data = pair.into_inner();
@@ -155,6 +167,7 @@ fn parse_function_body(value: Pair<'_, Rule>) -> Vec<MIRStatement<'_>> {
                 body.push(MIRStatement::SetVariable {
                     name: identifier,
                     value,
+                    span,
                 });
             }
             _ => unreachable!(),
@@ -170,6 +183,8 @@ fn parse_function_args(value: Pair<'_, Rule>) -> Vec<MIRVariable<'_>> {
     let mut args = vec![];
 
     for pair in value.into_inner() {
+        let span = pair.as_span();
+
         match pair.as_rule() {
             Rule::functionArgs => {
                 let mut data = pair.into_inner();
@@ -180,6 +195,7 @@ fn parse_function_args(value: Pair<'_, Rule>) -> Vec<MIRVariable<'_>> {
                 args.push(MIRVariable {
                     name: identifier,
                     ty,
+                    span,
                 });
             }
             _ => unreachable!(),
@@ -198,6 +214,7 @@ fn parse_expression(value: Pair<'_, Rule>) -> MIRExpression<'_> {
 fn parse_addition(value: Pair<'_, Rule>) -> MIRExpression<'_> {
     assert_eq!(value.as_rule(), Rule::addition);
 
+    let span = value.as_span();
     let mut data = value.into_inner();
 
     let mul = parse_multiplication(data.next().unwrap());
@@ -209,8 +226,8 @@ fn parse_addition(value: Pair<'_, Rule>) -> MIRExpression<'_> {
     let add = parse_addition(data.next().unwrap());
 
     match op.as_str() {
-        "+" => MIRExpression::Add(Box::new(mul), Box::new(add)),
-        "-" => MIRExpression::Sub(Box::new(mul), Box::new(add)),
+        "+" => MIRExpression::Add(Box::new(mul), Box::new(add), span),
+        "-" => MIRExpression::Sub(Box::new(mul), Box::new(add), span),
         _ => unreachable!(),
     }
 }
@@ -218,6 +235,7 @@ fn parse_addition(value: Pair<'_, Rule>) -> MIRExpression<'_> {
 fn parse_multiplication(value: Pair<'_, Rule>) -> MIRExpression<'_> {
     assert_eq!(value.as_rule(), Rule::multiplication);
 
+    let span = value.as_span();
     let mut data = value.into_inner();
 
     let pri = parse_primary(data.next().unwrap());
@@ -229,8 +247,8 @@ fn parse_multiplication(value: Pair<'_, Rule>) -> MIRExpression<'_> {
     let mul = parse_multiplication(data.next().unwrap());
 
     match op.as_str() {
-        "*" => MIRExpression::Mul(Box::new(pri), Box::new(mul)),
-        "/" => MIRExpression::Div(Box::new(pri), Box::new(mul)),
+        "*" => MIRExpression::Mul(Box::new(pri), Box::new(mul), span),
+        "/" => MIRExpression::Div(Box::new(pri), Box::new(mul), span),
         _ => unreachable!(),
     }
 }
@@ -238,11 +256,12 @@ fn parse_multiplication(value: Pair<'_, Rule>) -> MIRExpression<'_> {
 fn parse_primary(value: Pair<'_, Rule>) -> MIRExpression<'_> {
     assert_eq!(value.as_rule(), Rule::primary);
 
+    let span = value.as_span();
     let data = value.into_inner().next().unwrap();
 
     match data.as_rule() {
-        Rule::number => MIRExpression::Number(parse_number(data)),
-        Rule::identifier => MIRExpression::Variable(data.as_str()),
+        Rule::number => MIRExpression::Number(parse_number(data), span),
+        Rule::identifier => MIRExpression::Variable(data.as_str(), span),
         Rule::expression => parse_expression(data),
         _ => unreachable!(),
     }

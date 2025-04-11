@@ -5,6 +5,7 @@ mod type_check;
 
 use crate::mir::expr::{const_eval, const_optimize_expr};
 use crate::mir::type_check::type_check;
+use pest::Span;
 use std::collections::HashMap;
 
 /// Applies all MIR phases and
@@ -58,6 +59,10 @@ pub struct MIRConstant<'a> {
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
+
+    /// The code that created
+    /// this item.
+    pub span: Span<'a>,
 }
 
 /// A static variable.
@@ -73,6 +78,10 @@ pub struct MIRStatic<'a> {
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
+
+    /// The code that created
+    /// this item.
+    pub span: Span<'a>,
 }
 
 /// A function.
@@ -92,6 +101,10 @@ pub struct MIRFunction<'a> {
     /// that will be executed
     /// when the function runs.
     pub body: Vec<MIRStatement<'a>>,
+
+    /// The code that created
+    /// this item.
+    pub span: Span<'a>,
 }
 
 /// A variable inside a function.
@@ -103,6 +116,10 @@ pub struct MIRVariable<'a> {
     /// The type of the data stored
     /// inside the variable.
     pub ty: MIRType,
+
+    /// The code that created
+    /// this item.
+    pub span: Span<'a>,
 }
 
 /// A statement inside a function's
@@ -110,12 +127,12 @@ pub struct MIRVariable<'a> {
 #[derive(Debug)]
 pub enum MIRStatement<'a> {
     /// Creates a new variable.
-    CreateVariable(MIRVariable<'a>),
+    CreateVariable(MIRVariable<'a>, Span<'a>),
 
     /// Drops the value stored
     /// inside a variable and
     /// invalidates it.
-    DropVariable(&'a str),
+    DropVariable(&'a str, Span<'a>),
 
     /// Sets a variable to a certain value.
     SetVariable {
@@ -124,6 +141,10 @@ pub enum MIRStatement<'a> {
 
         /// Is the expression to set it to.
         value: MIRExpression<'a>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
     },
 }
 
@@ -132,22 +153,22 @@ pub enum MIRStatement<'a> {
 #[derive(Debug, Clone)]
 pub enum MIRExpression<'a> {
     /// Addition.
-    Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+    Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
 
     /// Subtraction.
-    Sub(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+    Sub(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
 
     /// Multiplication.
-    Mul(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+    Mul(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
 
     /// Division.
-    Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+    Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
 
     /// Number literal.
-    Number(i64),
+    Number(i64, Span<'a>),
 
     /// Variable access.
-    Variable(&'a str),
+    Variable(&'a str, Span<'a>),
 }
 
 /// The type of data a variable represents.

@@ -61,11 +61,11 @@ fn explore_block_internal<'a>(
         match statement {
             // Doesn't create / drop variables.
             MIRStatement::SetVariable { .. } => {}
-            MIRStatement::CreateVariable(var) => {
+            MIRStatement::CreateVariable(var, ..) => {
                 scope.variables.insert(var.name, var.clone());
                 scope.to_drop.push(var.clone());
             }
-            MIRStatement::DropVariable(name) => {
+            MIRStatement::DropVariable(name, ..) => {
                 // Manual drops don't invoke on_scope_drop.
 
                 if scope.variables.remove(name).is_none() {

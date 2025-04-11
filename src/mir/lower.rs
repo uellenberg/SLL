@@ -50,13 +50,14 @@ fn lower_variable<'a>(mir_variable: &MIRVariable<'a>) -> IRVariable<'a> {
 /// Converts MIRStatement to IRStatement.
 fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
     match mir_statement {
-        MIRStatement::CreateVariable(mir_var) => {
+        MIRStatement::CreateVariable(mir_var, ..) => {
             IRStatement::CreateVariable(lower_variable(mir_var))
         }
-        MIRStatement::DropVariable(name) => IRStatement::DropVariable(name),
+        MIRStatement::DropVariable(name, ..) => IRStatement::DropVariable(name),
         MIRStatement::SetVariable {
             name,
-            value: MIRExpression::Number(num),
+            value: MIRExpression::Number(num, ..),
+            ..
         } => IRStatement::SetVariableNum { name, value: *num },
         other => panic!("Unhandled statement during MIR lowering: {other:?}"),
     }
@@ -64,7 +65,7 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
 
 /// Converts MIRConstant to IRConstant.
 fn lower_constant<'a>(mir_constant: &MIRConstant<'a>) -> IRConstant<'a> {
-    let MIRExpression::Number(num) = mir_constant.value else {
+    let MIRExpression::Number(num, ..) = mir_constant.value else {
         panic!("Non-numeric expression during MIR lowering: {mir_constant:?}");
     };
 
@@ -77,7 +78,7 @@ fn lower_constant<'a>(mir_constant: &MIRConstant<'a>) -> IRConstant<'a> {
 
 /// Converts MIRStatic to IRStatic.
 fn lower_static<'a>(mir_static: &MIRStatic<'a>) -> IRStatic<'a> {
-    let MIRExpression::Number(num) = mir_static.value else {
+    let MIRExpression::Number(num, ..) = mir_static.value else {
         panic!("Non-numeric expression during MIR lowering: {mir_static:?}");
     };
 

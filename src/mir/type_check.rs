@@ -64,9 +64,9 @@ fn check_function(program: &MIRProgram, function: &MIRFunction<'_>) -> bool {
         &|statement, scope| {
             match statement {
                 // No expressions.
-                MIRStatement::CreateVariable(_) => {}
-                MIRStatement::DropVariable(_) => {}
-                MIRStatement::SetVariable { value, name } => {
+                MIRStatement::CreateVariable(..) => {}
+                MIRStatement::DropVariable(..) => {}
+                MIRStatement::SetVariable { value, name, .. } => {
                     let var_ty;
 
                     if let Some(var) = scope.variables.get(name) {
@@ -115,7 +115,7 @@ fn check_expression(
     scope: Option<&Scope<'_>>,
 ) -> Option<MIRType> {
     match expr {
-        MIRExpression::Add(left, right) => {
+        MIRExpression::Add(left, right, ..) => {
             let t_left = check_expression(program, left, scope)?;
             let t_right = check_expression(program, right, scope)?;
 
@@ -126,7 +126,7 @@ fn check_expression(
 
             Some(t_left)
         }
-        MIRExpression::Sub(left, right) => {
+        MIRExpression::Sub(left, right, ..) => {
             let t_left = check_expression(program, left, scope)?;
             let t_right = check_expression(program, right, scope)?;
 
@@ -137,7 +137,7 @@ fn check_expression(
 
             Some(t_left)
         }
-        MIRExpression::Mul(left, right) => {
+        MIRExpression::Mul(left, right, ..) => {
             let t_left = check_expression(program, left, scope)?;
             let t_right = check_expression(program, right, scope)?;
 
@@ -148,7 +148,7 @@ fn check_expression(
 
             Some(t_left)
         }
-        MIRExpression::Div(left, right) => {
+        MIRExpression::Div(left, right, ..) => {
             let t_left = check_expression(program, left, scope)?;
             let t_right = check_expression(program, right, scope)?;
 
@@ -159,7 +159,7 @@ fn check_expression(
 
             Some(t_left)
         }
-        MIRExpression::Variable(name) => {
+        MIRExpression::Variable(name, ..) => {
             if let Some(scope) = scope {
                 if let Some(var) = scope.variables.get(name) {
                     return Some(var.ty.clone());
@@ -182,7 +182,7 @@ fn check_expression(
             eprintln!("Variable doesn't exist: {expr:?}");
             None
         }
-        MIRExpression::Number(num) => {
+        MIRExpression::Number(num, ..) => {
             // TODO: Handle negatives.
             assert!(*num >= 0);
 
