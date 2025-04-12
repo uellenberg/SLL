@@ -1,31 +1,41 @@
-use crate::mir::scope::{Scope, explore_block};
+use crate::mir::scope::{Scope, explore_block_mut};
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
-    MIRTypeLiteral, Span,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFunction, MIRStatement,
+    MIRStatic, MIRType, MIRTypeInner, Span,
 };
 use ariadne::{ColorGenerator, Fmt, Label, Report, ReportKind};
-use std::os::linux::raw::stat;
+use std::borrow::Cow;
 
 /// Finds and reports type errors, returning
 /// whether type check succeeded.
-pub fn type_check(ctx: &MIRContext<'_>) -> bool {
-    for constant in ctx.program.constants.values() {
+/// Also modifies the MIR to contain
+/// type information.
+pub fn type_check(ctx: &mut MIRContext<'_>) -> bool {
+    let mut constants = ctx.program.constants.clone();
+    let mut statics = ctx.program.statics.clone();
+    let mut functions = ctx.program.functions.clone();
+
+    for constant in constants.values_mut() {
         if !check_constant(ctx, constant) {
             return false;
         }
     }
 
-    for static_data in ctx.program.statics.values() {
+    for static_data in statics.values_mut() {
         if !check_static(ctx, static_data) {
             return false;
         }
     }
 
-    for function in ctx.program.functions.values() {
+    for function in functions.values_mut() {
         if !check_function(ctx, function) {
             return false;
         }
     }
+
+    ctx.program.constants = constants;
+    ctx.program.statics = statics;
+    ctx.program.functions = functions;
 
     true
 }
@@ -34,8 +44,8 @@ pub fn type_check(ctx: &MIRContext<'_>) -> bool {
 /// returns an unexpected type.
 fn print_unexpected_expr_ty(
     ctx: &MIRContext<'_>,
-    expected_ty: MIRTypeLiteral<'_>,
-    actual_ty: MIRTypeLiteral<'_>,
+    expected_ty: MIRType<'_>,
+    actual_ty: MIRType<'_>,
     error_expr_span: Span<'_>,
 ) {
     let mut colors = ColorGenerator::new();
@@ -43,10 +53,10 @@ fn print_unexpected_expr_ty(
     let expected = colors.next();
     let actual = colors.next();
 
-    let expected_ty_str: &str = expected_ty.ty.clone().into();
+    let expected_ty_str: Cow<str> = expected_ty.ty.clone().into();
     let expected_ty_str = expected_ty_str.fg(expected);
 
-    let actual_ty_str: &str = actual_ty.ty.clone().into();
+    let actual_ty_str: Cow<str> = actual_ty.ty.clone().into();
     let actual_ty_str = actual_ty_str.fg(actual);
 
     let mut report = Report::build(ReportKind::Error, error_expr_span.clone()).with_message(
@@ -72,9 +82,10 @@ fn print_unexpected_expr_ty(
         .unwrap();
 }
 
-/// Checks whether the given constant is valid.
-fn check_constant(ctx: &MIRContext<'_>, constant: &MIRConstant<'_>) -> bool {
-    let Some(expr_type) = check_expression(ctx, &constant.value, None) else {
+/// Checks whether the given constant is valid,
+/// and modifies its type information to match.
+fn check_constant<'a>(ctx: &MIRContext<'a>, constant: &mut MIRConstant<'a>) -> bool {
+    let Some(expr_type) = check_expression(ctx, &mut constant.value, None) else {
         return false;
     };
 
@@ -83,7 +94,7 @@ fn check_constant(ctx: &MIRContext<'_>, constant: &MIRConstant<'_>) -> bool {
             ctx,
             constant.ty.clone(),
             expr_type,
-            constant.value.span().clone(),
+            constant.value.span.clone(),
         );
 
         return false;
@@ -92,9 +103,10 @@ fn check_constant(ctx: &MIRContext<'_>, constant: &MIRConstant<'_>) -> bool {
     true
 }
 
-/// Checks whether the given static is valid.
-fn check_static(ctx: &MIRContext<'_>, static_data: &MIRStatic<'_>) -> bool {
-    let Some(expr_type) = check_expression(ctx, &static_data.value, None) else {
+/// Checks whether the given static is valid,
+/// and modifies its type information to match.
+fn check_static<'a>(ctx: &MIRContext<'a>, static_data: &mut MIRStatic<'a>) -> bool {
+    let Some(expr_type) = check_expression(ctx, &mut static_data.value, None) else {
         return false;
     };
 
@@ -103,7 +115,7 @@ fn check_static(ctx: &MIRContext<'_>, static_data: &MIRStatic<'_>) -> bool {
             ctx,
             static_data.ty.clone(),
             expr_type,
-            static_data.value.span().clone(),
+            static_data.value.span.clone(),
         );
 
         return false;
@@ -112,12 +124,13 @@ fn check_static(ctx: &MIRContext<'_>, static_data: &MIRStatic<'_>) -> bool {
     true
 }
 
-/// Checks whether the given function is valid.
-fn check_function(ctx: &MIRContext<'_>, function: &MIRFunction<'_>) -> bool {
+/// Checks whether the given function is valid,
+/// and modifies its type information to match.
+fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> bool {
     // TODO: Check return types.
 
-    let res = explore_block(
-        &function.body,
+    let res = explore_block_mut(
+        &mut function.body,
         &|statement, scope| {
             match statement {
                 // No expressions.
@@ -142,7 +155,7 @@ fn check_function(ctx: &MIRContext<'_>, function: &MIRFunction<'_>) -> bool {
                     };
 
                     if ty.ty != var_ty.ty {
-                        print_unexpected_expr_ty(ctx, var_ty, ty, value.span().clone());
+                        print_unexpected_expr_ty(ctx, var_ty, ty, value.span.clone());
 
                         return false;
                     }
@@ -161,17 +174,18 @@ fn check_function(ctx: &MIRContext<'_>, function: &MIRFunction<'_>) -> bool {
     true
 }
 
-/// Checks whether the expression is valid.
+/// Checks whether the expression is valid,
+/// and modifies its type information to match.
 /// If it isn't, errors are reported.
 /// If it is, the expression's type is returned.
 fn check_expression<'a>(
     ctx: &MIRContext<'a>,
-    expr: &MIRExpression<'a>,
+    expr: &mut MIRExpression<'a>,
     scope: Option<&Scope<'a>>,
-) -> Option<MIRTypeLiteral<'a>> {
+) -> Option<MIRType<'a>> {
     let ty = (|| {
-        match expr {
-            MIRExpression::Add(left, right, ..) => {
+        match &mut expr.inner {
+            MIRExpressionInner::Add(left, right, ..) => {
                 let t_left = check_expression(ctx, left, scope)?;
                 let t_right = check_expression(ctx, right, scope)?;
 
@@ -182,7 +196,7 @@ fn check_expression<'a>(
 
                 Some(t_left)
             }
-            MIRExpression::Sub(left, right, ..) => {
+            MIRExpressionInner::Sub(left, right, ..) => {
                 let t_left = check_expression(ctx, left, scope)?;
                 let t_right = check_expression(ctx, right, scope)?;
 
@@ -193,7 +207,7 @@ fn check_expression<'a>(
 
                 Some(t_left)
             }
-            MIRExpression::Mul(left, right, ..) => {
+            MIRExpressionInner::Mul(left, right, ..) => {
                 let t_left = check_expression(ctx, left, scope)?;
                 let t_right = check_expression(ctx, right, scope)?;
 
@@ -204,7 +218,7 @@ fn check_expression<'a>(
 
                 Some(t_left)
             }
-            MIRExpression::Div(left, right, ..) => {
+            MIRExpressionInner::Div(left, right, ..) => {
                 let t_left = check_expression(ctx, left, scope)?;
                 let t_right = check_expression(ctx, right, scope)?;
 
@@ -215,7 +229,7 @@ fn check_expression<'a>(
 
                 Some(t_left)
             }
-            MIRExpression::Variable(name, ..) => {
+            MIRExpressionInner::Variable(name, ..) => {
                 if let Some(scope) = scope {
                     if let Some(var) = scope.variables.get(name) {
                         return Some(var.ty.clone());
@@ -240,22 +254,27 @@ fn check_expression<'a>(
                 eprintln!("Variable doesn't exist: {expr:?}");
                 None
             }
-            MIRExpression::Number(num, span) => {
+            MIRExpressionInner::Number(num) => {
                 // TODO: Handle negatives.
                 assert!(*num >= 0);
 
-                Some(MIRTypeLiteral {
-                    ty: MIRType::U32,
-                    span: Some(span.clone()),
+                Some(MIRType {
+                    ty: MIRTypeInner::U32,
+                    // Span is added after.
+                    span: None,
                 })
             }
         }
     })()?;
 
+    // Save the type for later
+    // phases.
+    expr.ty = Some(ty.clone());
+
     // Ensure that we return a type
     // whose span covers the entire expression.
-    Some(MIRTypeLiteral {
+    Some(MIRType {
         ty: ty.ty,
-        span: Some(expr.span().clone()),
+        span: Some(expr.span.clone()),
     })
 }

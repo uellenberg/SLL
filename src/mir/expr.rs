@@ -1,5 +1,10 @@
-use crate::mir::{MIRConstant, MIRContext, MIRExpression, MIRStatement};
+use crate::mir::scope::Scope;
+use crate::mir::{
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
+};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Attempts to evaluate all constants and statics, returning
 /// whether it was successful.
@@ -51,49 +56,49 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
 /// Evaluation means that it's reduced to a primitive.
 fn eval_constant<'a>(
     ctx: &mut MIRContext<'a>,
-    constant_name: &'a str,
-    current_evals: &mut HashSet<&'a str>,
-    done_evals: &mut HashSet<&'a str>,
+    constant_name: Cow<'a, str>,
+    current_evals: &mut HashSet<Cow<'a, str>>,
+    done_evals: &mut HashSet<Cow<'a, str>>,
 ) -> bool {
-    if done_evals.contains(constant_name) {
+    if done_evals.contains(&constant_name) {
         // Already done.
         return true;
     }
 
-    if current_evals.contains(constant_name) {
+    if current_evals.contains(&constant_name) {
         // Eval loop.
         eprintln!("Constant loop detected: {current_evals:?}");
         return false;
     }
 
-    current_evals.insert(constant_name);
+    current_evals.insert(constant_name.clone());
 
-    let old_expr = ctx.program.constants[constant_name].value.clone();
+    let old_expr = ctx.program.constants[&constant_name].value.clone();
     let reduced = reduce_expr(&old_expr, &mut |name| {
         // Ensure the constant exists.
-        if !ctx.program.constants.contains_key(name) {
+        if !ctx.program.constants.contains_key(&name) {
             return None;
         }
 
         // Ensure the constant is evaluated.
-        if !eval_constant(ctx, name, current_evals, done_evals) {
+        if !eval_constant(ctx, name.clone(), current_evals, done_evals) {
             return None;
         }
 
         // No need to validate that this is a primitive here,
         // since eval_constant already does that.
-        Some(ctx.program.constants[name].value.clone())
+        Some(ctx.program.constants[&name].value.clone())
     });
 
     // Constants must be fully reduced.
-    if !matches!(reduced, MIRExpression::Number(_, ..)) {
+    if !matches!(reduced.inner, MIRExpressionInner::Number(_, ..)) {
         eprintln!("Failed to reduce constant to a number: {:?}", &old_expr);
         return false;
     }
 
-    ctx.program.constants.get_mut(constant_name).unwrap().value = reduced;
+    ctx.program.constants.get_mut(&constant_name).unwrap().value = reduced;
 
-    current_evals.remove(constant_name);
+    current_evals.remove(&constant_name);
     done_evals.insert(constant_name);
 
     true
@@ -103,17 +108,17 @@ fn eval_constant<'a>(
 /// whether it was successful.
 /// This MUST occur after constant evaluation.
 /// Evaluation means that it's reduced to a primitive.
-fn eval_static<'a>(ctx: &mut MIRContext<'a>, constant_name: &'a str) -> bool {
-    let old_expr = ctx.program.statics[constant_name].value.clone();
+fn eval_static<'a>(ctx: &mut MIRContext<'a>, constant_name: Cow<'a, str>) -> bool {
+    let old_expr = ctx.program.statics[&constant_name].value.clone();
     let reduced = reduce_expr_simple(&ctx.program.constants, &old_expr);
 
     // Statics must be fully reduced.
-    if !matches!(reduced, MIRExpression::Number(_, ..)) {
+    if !matches!(reduced.inner, MIRExpressionInner::Number(_, ..)) {
         eprintln!("Failed to reduce static to a number: {:?}", &old_expr);
         return false;
     }
 
-    ctx.program.statics.get_mut(constant_name).unwrap().value = reduced;
+    ctx.program.statics.get_mut(&constant_name).unwrap().value = reduced;
 
     true
 }
@@ -122,12 +127,12 @@ fn eval_static<'a>(ctx: &mut MIRContext<'a>, constant_name: &'a str) -> bool {
 /// the values inside constants.
 /// This MUST be run after constant evaluation.
 fn reduce_expr_simple<'a>(
-    constants: &HashMap<&'a str, MIRConstant<'a>>,
+    constants: &HashMap<Cow<'a, str>, MIRConstant<'a>>,
     expr: &MIRExpression<'a>,
 ) -> MIRExpression<'a> {
     reduce_expr(&expr, &mut |name| {
         // Ensure the constant exists.
-        if !constants.contains_key(name) {
+        if !constants.contains_key(&name) {
             return None;
         }
 
@@ -135,7 +140,7 @@ fn reduce_expr_simple<'a>(
 
         // No need to validate that this is a primitive here,
         // since eval_constant already does that.
-        Some(constants[name].value.clone())
+        Some(constants[&name].value.clone())
     })
 }
 
@@ -143,60 +148,66 @@ fn reduce_expr_simple<'a>(
 /// using simple constant evaluation.
 fn reduce_expr<'a>(
     expr: &MIRExpression<'a>,
-    get_const: &mut impl FnMut(&'a str) -> Option<MIRExpression<'a>>,
+    get_const: &mut impl FnMut(Cow<'a, str>) -> Option<MIRExpression<'a>>,
 ) -> MIRExpression<'a> {
-    match expr {
-        MIRExpression::Add(left, right, span) => {
+    let new_expr = (|| match &expr.inner {
+        MIRExpressionInner::Add(left, right) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left, ..) = left {
-                if let MIRExpression::Number(right, ..) = right {
-                    return MIRExpression::Number(left + right, span.clone());
+            if let MIRExpressionInner::Number(left, ..) = left.inner {
+                if let MIRExpressionInner::Number(right, ..) = right.inner {
+                    return MIRExpressionInner::Number(left + right);
                 }
             }
 
-            MIRExpression::Add(Box::new(left), Box::new(right), span.clone())
+            MIRExpressionInner::Add(Box::new(left), Box::new(right))
         }
-        MIRExpression::Sub(left, right, span) => {
+        MIRExpressionInner::Sub(left, right) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left, ..) = left {
-                if let MIRExpression::Number(right, ..) = right {
-                    return MIRExpression::Number(left - right, span.clone());
+            if let MIRExpressionInner::Number(left, ..) = left.inner {
+                if let MIRExpressionInner::Number(right, ..) = right.inner {
+                    return MIRExpressionInner::Number(left - right);
                 }
             }
 
-            MIRExpression::Sub(Box::new(left), Box::new(right), span.clone())
+            MIRExpressionInner::Sub(Box::new(left), Box::new(right))
         }
-        MIRExpression::Mul(left, right, span) => {
+        MIRExpressionInner::Mul(left, right) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left, ..) = left {
-                if let MIRExpression::Number(right, ..) = right {
-                    return MIRExpression::Number(left * right, span.clone());
+            if let MIRExpressionInner::Number(left, ..) = left.inner {
+                if let MIRExpressionInner::Number(right, ..) = right.inner {
+                    return MIRExpressionInner::Number(left * right);
                 }
             }
 
-            MIRExpression::Mul(Box::new(left), Box::new(right), span.clone())
+            MIRExpressionInner::Mul(Box::new(left), Box::new(right))
         }
-        MIRExpression::Div(left, right, span) => {
+        MIRExpressionInner::Div(left, right) => {
             let left = reduce_expr(left, get_const);
             let right = reduce_expr(right, get_const);
 
-            if let MIRExpression::Number(left, ..) = left {
-                if let MIRExpression::Number(right, ..) = right {
-                    return MIRExpression::Number(left / right, span.clone());
+            if let MIRExpressionInner::Number(left, ..) = left.inner {
+                if let MIRExpressionInner::Number(right, ..) = right.inner {
+                    return MIRExpressionInner::Number(left / right);
                 }
             }
 
-            MIRExpression::Div(Box::new(left), Box::new(right), span.clone())
+            MIRExpressionInner::Div(Box::new(left), Box::new(right))
         }
-        MIRExpression::Number(val, span) => MIRExpression::Number(*val, span.clone()),
-        MIRExpression::Variable(name, span) => {
-            get_const(name).unwrap_or(MIRExpression::Variable(name, span.clone()))
-        }
+        MIRExpressionInner::Number(val) => MIRExpressionInner::Number(*val),
+        MIRExpressionInner::Variable(name) => get_const(name.clone())
+            .map(|v| v.inner)
+            .unwrap_or(MIRExpressionInner::Variable(name.clone())),
+    })();
+
+    MIRExpression {
+        inner: new_expr,
+        ty: expr.ty.clone(),
+        span: expr.span.clone(),
     }
 }

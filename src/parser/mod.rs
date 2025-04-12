@@ -1,14 +1,15 @@
 pub mod file_cache;
 
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRFunction, MIRStatement, MIRStatic, MIRType,
-    MIRTypeLiteral, MIRVariable, Span, to_span,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFunction, MIRStatement,
+    MIRStatic, MIRType, MIRTypeInner, MIRVariable, Span, to_span,
 };
 use ariadne::{ColorGenerator, Label, Report, ReportKind};
 use pest::Parser;
 use pest::error::Error;
 use pest::iterators::Pair;
 use pest_derive::Parser;
+use std::borrow::Cow;
 use std::path::Path;
 
 #[derive(Parser)]
@@ -38,29 +39,33 @@ fn parse_data<'a>(location: &'a Path, data: &'a str, ctx: &mut MIRContext<'a>) -
         match pair.as_rule() {
             Rule::constDeclaration => {
                 let constant = parse_constant(location, pair);
-                if !check_no_duplicates(&ctx, constant.name, &constant.span) {
+                if !check_no_duplicates(&ctx, constant.name.clone(), &constant.span) {
                     return false;
                 }
 
-                ctx.program.constants.insert(constant.name, constant);
+                ctx.program
+                    .constants
+                    .insert(constant.name.clone(), constant);
             }
             Rule::staticDeclaration => {
                 let static_data = parse_static(location, pair);
-                if !check_no_duplicates(&ctx, static_data.name, &static_data.span) {
+                if !check_no_duplicates(&ctx, static_data.name.clone(), &static_data.span) {
                     return false;
                 }
 
-                ctx.program.statics.insert(static_data.name, static_data);
+                ctx.program
+                    .statics
+                    .insert(static_data.name.clone(), static_data);
             }
             Rule::functionDeclaration => {
                 let function_data = parse_function(location, pair);
-                if !check_no_duplicates(&ctx, function_data.name, &function_data.span) {
+                if !check_no_duplicates(&ctx, function_data.name.clone(), &function_data.span) {
                     return false;
                 }
 
                 ctx.program
                     .functions
-                    .insert(function_data.name, function_data);
+                    .insert(function_data.name.clone(), function_data);
             }
             Rule::EOI => {}
             _ => unreachable!(),
@@ -70,13 +75,13 @@ fn parse_data<'a>(location: &'a Path, data: &'a str, ctx: &mut MIRContext<'a>) -
     true
 }
 
-fn check_no_duplicates<'a>(ctx: &MIRContext<'a>, name: &'a str, span: &Span<'a>) -> bool {
+fn check_no_duplicates<'a>(ctx: &MIRContext<'a>, name: Cow<'a, str>, span: &Span<'a>) -> bool {
     let defined_span;
-    if let Some(var) = ctx.program.statics.get(name) {
+    if let Some(var) = ctx.program.statics.get(&name) {
         defined_span = var.span.clone();
-    } else if let Some(var) = ctx.program.constants.get(name) {
+    } else if let Some(var) = ctx.program.constants.get(&name) {
         defined_span = var.span.clone();
-    } else if let Some(var) = ctx.program.functions.get(name) {
+    } else if let Some(var) = ctx.program.functions.get(&name) {
         defined_span = var.span.clone();
     } else {
         // No duplicates.
@@ -118,7 +123,7 @@ fn parse_static<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRStatic<'a> 
     let expr = parse_expression(location, data.next().unwrap());
 
     MIRStatic {
-        name: identifier,
+        name: Cow::Borrowed(identifier),
         ty,
         value: expr,
         span,
@@ -136,7 +141,7 @@ fn parse_constant<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRConstant<
     let expr = parse_expression(location, data.next().unwrap());
 
     MIRConstant {
-        name: identifier,
+        name: Cow::Borrowed(identifier),
         ty,
         value: expr,
         span,
@@ -151,8 +156,8 @@ fn parse_function<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRFunction<
 
     let identifier = data.next().unwrap().as_str();
     let mut args = vec![];
-    let mut ret = MIRTypeLiteral {
-        ty: MIRType::Unit,
+    let mut ret = MIRType {
+        ty: MIRTypeInner::Unit,
         span: None,
     };
 
@@ -168,7 +173,7 @@ fn parse_function<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRFunction<
             Rule::functionBody => {
                 // Function body is the last item.
                 return MIRFunction {
-                    name: identifier,
+                    name: Cow::Borrowed(identifier),
                     args,
                     ret_ty: ret,
                     body: parse_function_body(location, pair),
@@ -200,7 +205,7 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
 
                 body.push(MIRStatement::CreateVariable(
                     MIRVariable {
-                        name: identifier,
+                        name: Cow::Borrowed(identifier),
                         ty,
                         span: span.clone(),
                     },
@@ -214,7 +219,7 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                 let value = parse_expression(location, data.next().unwrap());
 
                 body.push(MIRStatement::SetVariable {
-                    name: identifier,
+                    name: Cow::Borrowed(identifier),
                     value,
                     span,
                 });
@@ -242,7 +247,7 @@ fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                 let ty = parse_type(location, data.next().unwrap());
 
                 args.push(MIRVariable {
-                    name: identifier,
+                    name: Cow::Borrowed(identifier),
                     ty,
                     span,
                 });
@@ -274,10 +279,16 @@ fn parse_addition<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpressio
 
     let add = parse_addition(location, data.next().unwrap());
 
-    match op.as_str() {
-        "+" => MIRExpression::Add(Box::new(mul), Box::new(add), span),
-        "-" => MIRExpression::Sub(Box::new(mul), Box::new(add), span),
+    let expr = match op.as_str() {
+        "+" => MIRExpressionInner::Add(Box::new(mul), Box::new(add)),
+        "-" => MIRExpressionInner::Sub(Box::new(mul), Box::new(add)),
         _ => unreachable!(),
+    };
+
+    MIRExpression {
+        inner: expr,
+        ty: None,
+        span,
     }
 }
 
@@ -295,10 +306,16 @@ fn parse_multiplication<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExp
 
     let mul = parse_multiplication(location, data.next().unwrap());
 
-    match op.as_str() {
-        "*" => MIRExpression::Mul(Box::new(pri), Box::new(mul), span),
-        "/" => MIRExpression::Div(Box::new(pri), Box::new(mul), span),
+    let expr = match op.as_str() {
+        "*" => MIRExpressionInner::Mul(Box::new(pri), Box::new(mul)),
+        "/" => MIRExpressionInner::Div(Box::new(pri), Box::new(mul)),
         _ => unreachable!(),
+    };
+
+    MIRExpression {
+        inner: expr,
+        ty: None,
+        span,
     }
 }
 
@@ -308,24 +325,36 @@ fn parse_primary<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression
     let span = to_span(location, value.as_span());
     let data = value.into_inner().next().unwrap();
 
-    match data.as_rule() {
-        Rule::number => MIRExpression::Number(parse_number(data), span),
-        Rule::identifier => MIRExpression::Variable(data.as_str(), span),
-        Rule::expression => parse_expression(location, data),
-        _ => unreachable!(),
-    }
-}
+    let expr = match data.as_rule() {
+        Rule::number => MIRExpressionInner::Number(parse_number(data)),
+        Rule::identifier => MIRExpressionInner::Variable(Cow::Borrowed(data.as_str())),
+        Rule::expression => {
+            // Expand expression span to include parenthases.
+            let mut expr = parse_expression(location, data);
+            expr.span = span;
 
-fn parse_type<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRTypeLiteral<'a> {
-    assert_eq!(value.as_rule(), Rule::variableType);
-
-    let ty = match value.as_str() {
-        "u32" => MIRType::U32,
-        "()" => MIRType::Unit,
+            return expr;
+        }
         _ => unreachable!(),
     };
 
-    MIRTypeLiteral {
+    MIRExpression {
+        inner: expr,
+        ty: None,
+        span,
+    }
+}
+
+fn parse_type<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRType<'a> {
+    assert_eq!(value.as_rule(), Rule::variableType);
+
+    let ty = match value.as_str() {
+        "u32" => MIRTypeInner::U32,
+        "()" => MIRTypeInner::Unit,
+        _ => unreachable!(),
+    };
+
+    MIRType {
         ty,
         span: Some(to_span(location, value.as_span())),
     }

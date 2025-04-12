@@ -6,6 +6,7 @@ mod type_check;
 use crate::mir::expr::{const_eval, const_optimize_expr};
 use crate::mir::type_check::type_check;
 use crate::parser::file_cache::FileCache;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
@@ -72,27 +73,27 @@ impl<'a> ariadne::Span for Span<'a> {
 pub struct MIRProgram<'a> {
     /// A list of constants in the program.
     /// Name -> Constant data.
-    pub constants: HashMap<&'a str, MIRConstant<'a>>,
+    pub constants: HashMap<Cow<'a, str>, MIRConstant<'a>>,
 
     /// A list of statics in the program.
     /// Name -> Static data.
-    pub statics: HashMap<&'a str, MIRStatic<'a>>,
+    pub statics: HashMap<Cow<'a, str>, MIRStatic<'a>>,
 
     /// A list of functions in the program.
     /// Name -> Function data.
-    pub functions: HashMap<&'a str, MIRFunction<'a>>,
+    pub functions: HashMap<Cow<'a, str>, MIRFunction<'a>>,
 }
 
 /// A constant variable.
 /// These cannot be modified, and can only
 /// be initialized with simple expressions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MIRConstant<'a> {
     /// The variable's name.
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
 
     /// The constant's type.
-    pub ty: MIRTypeLiteral<'a>,
+    pub ty: MIRType<'a>,
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
@@ -105,13 +106,13 @@ pub struct MIRConstant<'a> {
 /// A static variable.
 /// These can be modified and can only
 /// be initialized with simple expressions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MIRStatic<'a> {
     /// The variable's name.
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
 
     /// The constant's type.
-    pub ty: MIRTypeLiteral<'a>,
+    pub ty: MIRType<'a>,
 
     /// The constant's value.
     pub value: MIRExpression<'a>,
@@ -122,13 +123,13 @@ pub struct MIRStatic<'a> {
 }
 
 /// A function.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MIRFunction<'a> {
     /// The function's name.
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
 
     /// The function's return type.
-    pub ret_ty: MIRTypeLiteral<'a>,
+    pub ret_ty: MIRType<'a>,
 
     /// A list of the arguments that
     /// the function takes in.
@@ -148,11 +149,11 @@ pub struct MIRFunction<'a> {
 #[derive(Debug, Clone)]
 pub struct MIRVariable<'a> {
     /// The variable's name.
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
 
     /// The type of the data stored
     /// inside the variable.
-    pub ty: MIRTypeLiteral<'a>,
+    pub ty: MIRType<'a>,
 
     /// The code that created
     /// this item.
@@ -161,7 +162,7 @@ pub struct MIRVariable<'a> {
 
 /// A statement inside a function's
 /// body.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MIRStatement<'a> {
     /// Creates a new variable.
     CreateVariable(MIRVariable<'a>, Span<'a>),
@@ -169,12 +170,12 @@ pub enum MIRStatement<'a> {
     /// Drops the value stored
     /// inside a variable and
     /// invalidates it.
-    DropVariable(&'a str, Span<'a>),
+    DropVariable(Cow<'a, str>, Span<'a>),
 
     /// Sets a variable to a certain value.
     SetVariable {
         /// Is the variable's name.
-        name: &'a str,
+        name: Cow<'a, str>,
 
         /// Is the expression to set it to.
         value: MIRExpression<'a>,
@@ -188,46 +189,47 @@ pub enum MIRStatement<'a> {
 /// An expression that evaluates to some
 /// value.
 #[derive(Debug, Clone)]
-pub enum MIRExpression<'a> {
-    /// Addition.
-    Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
+pub struct MIRExpression<'a> {
+    /// The expression.
+    pub inner: MIRExpressionInner<'a>,
 
-    /// Subtraction.
-    Sub(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
+    /// The expression's type.
+    /// This is only available
+    /// after type checking and inference.
+    pub ty: Option<MIRType<'a>>,
 
-    /// Multiplication.
-    Mul(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
-
-    /// Division.
-    Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>, Span<'a>),
-
-    /// Number literal.
-    Number(i64, Span<'a>),
-
-    /// Variable access.
-    Variable(&'a str, Span<'a>),
+    /// The expression's span.
+    pub span: Span<'a>,
 }
 
-impl<'a> MIRExpression<'a> {
-    /// Gets the span associated
-    /// with the expression.
-    pub fn span(&self) -> &Span<'a> {
-        match self {
-            MIRExpression::Add(_, _, span) => span,
-            MIRExpression::Sub(_, _, span) => span,
-            MIRExpression::Mul(_, _, span) => span,
-            MIRExpression::Div(_, _, span) => span,
-            MIRExpression::Number(_, span) => span,
-            MIRExpression::Variable(_, span) => span,
-        }
-    }
+/// An expression that evaluates to some
+/// value.
+#[derive(Debug, Clone)]
+pub enum MIRExpressionInner<'a> {
+    /// Addition.
+    Add(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Subtraction.
+    Sub(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Multiplication.
+    Mul(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Division.
+    Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Number literal.
+    Number(i64),
+
+    /// Variable access.
+    Variable(Cow<'a, str>),
 }
 
 /// A type written out as text.
 #[derive(Debug, Clone)]
-pub struct MIRTypeLiteral<'a> {
+pub struct MIRType<'a> {
     /// The type represented by the literal.
-    pub ty: MIRType<'a>,
+    pub ty: MIRTypeInner<'a>,
 
     /// The literal's span.
     /// This type is sometimes
@@ -240,7 +242,7 @@ pub struct MIRTypeLiteral<'a> {
 
 /// The type of data a variable represents.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum MIRType<'a> {
+pub enum MIRTypeInner<'a> {
     /// Unsigned 32-bit integer.
     U32,
 
@@ -248,15 +250,15 @@ pub enum MIRType<'a> {
     Unit,
 
     /// A named type (struct).
-    Named(&'a str),
+    Named(Cow<'a, str>),
 }
 
-impl<'a> From<MIRType<'a>> for &'a str {
-    fn from(value: MIRType<'a>) -> Self {
+impl<'a> From<MIRTypeInner<'a>> for Cow<'a, str> {
+    fn from(value: MIRTypeInner<'a>) -> Self {
         match value {
-            MIRType::U32 => "u32",
-            MIRType::Unit => "()",
-            MIRType::Named(val) => val,
+            MIRTypeInner::U32 => Cow::Borrowed("u32"),
+            MIRTypeInner::Unit => Cow::Borrowed("()"),
+            MIRTypeInner::Named(val) => val,
         }
     }
 }
