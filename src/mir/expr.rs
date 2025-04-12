@@ -1,3 +1,4 @@
+use crate::mir::scope::rewrite_block;
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
 };
@@ -214,45 +215,49 @@ fn reduce_expr<'a>(
 /// Splits every expression into locals,
 /// which IR can process.
 /// This MUST run after type checking.
-pub fn split_exprs_to_locals<'a>(ctx: &mut MIRContext<'a>) {
+pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
     for function in ctx.program.functions.values_mut() {
         let local_idx = AtomicU32::new(0);
-
-        let mut new_statements = vec![];
 
         let mut pre = vec![];
         let mut post = vec![];
 
-        for statement in &function.body {
-            let new_statement = match statement {
-                // No expressions.
-                MIRStatement::CreateVariable(..) | MIRStatement::DropVariable(..) => {
-                    new_statements.push(statement.clone());
-                    continue;
-                }
-                MIRStatement::SetVariable { value, name, span } => {
-                    let new_expr = split_expr_to_locals(value, &mut pre, &mut post, &local_idx);
-
-                    MIRStatement::SetVariable {
-                        value: new_expr,
-                        name: name.clone(),
-                        span: span.clone(),
+        if !rewrite_block(
+            &mut function.body,
+            &mut |statement, scope, block| {
+                let new_statement = match &statement {
+                    // No expressions.
+                    MIRStatement::CreateVariable(..) | MIRStatement::DropVariable(..) => {
+                        block.push(statement);
+                        return true;
                     }
-                }
-            };
+                    MIRStatement::SetVariable { value, name, span } => {
+                        let new_expr = split_expr_to_locals(value, &mut pre, &mut post, &local_idx);
 
-            new_statements.append(&mut pre);
+                        MIRStatement::SetVariable {
+                            value: new_expr,
+                            name: name.clone(),
+                            span: span.clone(),
+                        }
+                    }
+                };
 
-            new_statements.push(new_statement);
+                block.append(&mut pre);
 
-            // This needs to be applied in reverse
-            // order, since that's how it's
-            // constructed.
-            post.reverse();
-            new_statements.append(&mut post);
+                block.push(new_statement);
+
+                // This needs to be applied in reverse
+                // order, since that's how it's
+                // constructed.
+                post.reverse();
+                block.append(&mut post);
+
+                true
+            },
+            &mut |_, _| true,
+        ) {
+            panic!("split_exprs_to_locals returned false!");
         }
-
-        function.body = new_statements;
     }
 }
 

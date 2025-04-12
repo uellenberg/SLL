@@ -1,6 +1,7 @@
 use crate::mir::{MIRStatement, MIRVariable};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::mem::swap;
 
 /// A scope containing currently
 /// available variables.
@@ -84,6 +85,10 @@ fn explore_block_handle_scope<'a>(statement: &MIRStatement<'a>, scope: &mut Scop
                 eprintln!("Failed to drop {name}: variable does not exist!");
                 return false;
             }
+
+            // We already dropped it, so no
+            // need to do it automatically.
+            scope.to_drop.retain(|var| &var.name != name);
         }
     }
 
@@ -133,6 +138,63 @@ fn explore_block_mut_internal<'a>(
     }
 
     explore_block_handle_drop(&scope, on_scope_drop);
+
+    true
+}
+
+/// Rewrites a block, allowing for arbitrary
+/// insertion before and after each statement.
+/// The push function must be used inside for_each,
+/// or else all statements will be deleted.
+///
+/// This includes a scope representing which variables
+/// are available.
+/// This also runs on_scope_drop for every variable
+/// that is AUTOMATICALLY DROPPED.
+/// Note that this does not include manual
+/// drops.
+/// However, manual drops are taken into consideration
+/// in the scope.
+///
+/// The scope is updated AFTER the for_each, not before it.
+///
+/// Returns whether rewriting was successful.
+/// Both functions return whether they were successful,
+/// and will halt exploration if either returns false.
+pub fn rewrite_block<'a>(
+    block: &mut Vec<MIRStatement<'a>>,
+    for_each: &mut impl FnMut(MIRStatement<'a>, &Scope<'a>, &mut Vec<MIRStatement<'a>>) -> bool,
+    on_scope_end: &mut impl FnMut(&Scope<'a>, &mut Vec<MIRStatement<'a>>) -> bool,
+) -> bool {
+    rewrite_block_internal(block, for_each, on_scope_end, &Scope::default())
+}
+
+fn rewrite_block_internal<'a>(
+    block: &mut Vec<MIRStatement<'a>>,
+    for_each: &mut impl FnMut(MIRStatement<'a>, &Scope<'a>, &mut Vec<MIRStatement<'a>>) -> bool,
+    on_scope_end: &mut impl FnMut(&Scope<'a>, &mut Vec<MIRStatement<'a>>) -> bool,
+    parent_scope: &Scope<'a>,
+) -> bool {
+    let mut scope = parent_scope.clone();
+
+    let mut old_block = vec![];
+    swap(block, &mut old_block);
+
+    for statement in old_block {
+        // TODO: Handle block recursion here.
+
+        if !for_each(statement.clone(), &scope, block) {
+            return false;
+        }
+
+        if !explore_block_handle_scope(&statement, &mut scope) {
+            return false;
+        }
+    }
+
+    if !on_scope_end(&scope, block) {
+        return false;
+    }
 
     true
 }

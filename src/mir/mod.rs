@@ -1,8 +1,10 @@
+mod drop;
 mod expr;
 pub mod lower;
 mod scope;
 mod type_check;
 
+use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
 use crate::mir::type_check::type_check;
 use crate::parser::file_cache::FileCache;
@@ -37,6 +39,8 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
     if !const_optimize_expr(ctx) {
         return false;
     }
+
+    drop_at_scope_end(ctx);
 
     split_exprs_to_locals(ctx);
 

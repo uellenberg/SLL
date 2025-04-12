@@ -7,5 +7,7 @@ function main() {
     let v: u32;
     v = 5;
 
+    let g: u32;
+
     test = test + 5;
 }
