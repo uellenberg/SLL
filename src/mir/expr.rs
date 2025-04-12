@@ -1,4 +1,3 @@
-use crate::mir::scope::Scope;
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
 };
@@ -210,4 +209,171 @@ fn reduce_expr<'a>(
         ty: expr.ty.clone(),
         span: expr.span.clone(),
     }
+}
+
+/// Splits every expression into locals,
+/// which IR can process.
+/// This MUST run after type checking.
+pub fn split_exprs_to_locals<'a>(ctx: &mut MIRContext<'a>) {
+    for function in ctx.program.functions.values_mut() {
+        let local_idx = AtomicU32::new(0);
+
+        let mut new_statements = vec![];
+
+        let mut pre = vec![];
+        let mut post = vec![];
+
+        for statement in &function.body {
+            let new_statement = match statement {
+                // No expressions.
+                MIRStatement::CreateVariable(..) | MIRStatement::DropVariable(..) => {
+                    new_statements.push(statement.clone());
+                    continue;
+                }
+                MIRStatement::SetVariable { value, name, span } => {
+                    let new_expr = split_expr_to_locals(value, &mut pre, &mut post, &local_idx);
+
+                    MIRStatement::SetVariable {
+                        value: new_expr,
+                        name: name.clone(),
+                        span: span.clone(),
+                    }
+                }
+            };
+
+            new_statements.append(&mut pre);
+
+            new_statements.push(new_statement);
+
+            // This needs to be applied in reverse
+            // order, since that's how it's
+            // constructed.
+            post.reverse();
+            new_statements.append(&mut post);
+        }
+
+        function.body = new_statements;
+    }
+}
+
+/// Post is in reverse order.
+/// When it appears in the code,
+/// it needs to be reversed.
+fn split_expr_to_locals<'a>(
+    expr: &MIRExpression<'a>,
+    pre: &mut Vec<MIRStatement<'a>>,
+    post: &mut Vec<MIRStatement<'a>>,
+    local_idx: &AtomicU32,
+) -> MIRExpression<'a> {
+    let Some(expression_ty) = &expr.ty else {
+        panic!("Expression splitting requires type information!");
+    };
+
+    let mut child_pre = vec![];
+    let mut child_post = vec![];
+
+    macro_rules! recurse {
+        ($val:expr) => {
+            split_expr_to_locals($val, &mut child_pre, &mut child_post, local_idx)
+        };
+    }
+
+    let (new_expr, needs_var) = match &expr.inner {
+        MIRExpressionInner::Add(left, right) => {
+            let left = recurse!(left);
+            let right = recurse!(right);
+
+            (
+                MIRExpressionInner::Add(Box::new(left), Box::new(right)),
+                true,
+            )
+        }
+        MIRExpressionInner::Sub(left, right) => {
+            let left = recurse!(left);
+            let right = recurse!(right);
+
+            (
+                MIRExpressionInner::Sub(Box::new(left), Box::new(right)),
+                true,
+            )
+        }
+        MIRExpressionInner::Mul(left, right) => {
+            let left = recurse!(left);
+            let right = recurse!(right);
+
+            (
+                MIRExpressionInner::Mul(Box::new(left), Box::new(right)),
+                true,
+            )
+        }
+        MIRExpressionInner::Div(left, right) => {
+            let left = recurse!(left);
+            let right = recurse!(right);
+
+            (
+                MIRExpressionInner::Div(Box::new(left), Box::new(right)),
+                true,
+            )
+        }
+        // Primitive expressions don't need variables.
+        MIRExpressionInner::Variable(val) => (MIRExpressionInner::Variable(val.clone()), false),
+        MIRExpressionInner::Number(val) => (MIRExpressionInner::Number(*val), false),
+    };
+
+    // Add span and type information back to
+    // the expression.
+    let new_expr = MIRExpression {
+        inner: new_expr,
+        ty: expr.ty.clone(),
+        span: expr.span.clone(),
+    };
+
+    pre.append(&mut child_pre);
+
+    let final_expr;
+
+    if needs_var {
+        let local_idx = local_idx.fetch_add(1, Ordering::Relaxed);
+        let local_name = format!("$local_{local_idx}");
+
+        pre.push(MIRStatement::CreateVariable(
+            MIRVariable {
+                name: Cow::Owned(local_name.clone()),
+                ty: expression_ty.clone(),
+                // This span isn't correct, but good enough.
+                span: expr.span.clone(),
+            },
+            // This span isn't correct, but good enough.
+            expr.span.clone(),
+        ));
+
+        pre.push(MIRStatement::SetVariable {
+            value: new_expr,
+            // This span isn't correct, but good enough.
+            span: expr.span.clone(),
+            name: Cow::Owned(local_name.clone()),
+        });
+
+        post.push(MIRStatement::DropVariable(
+            Cow::Owned(local_name.clone()),
+            // This span isn't correct, but good enough.
+            expr.span.clone(),
+        ));
+
+        final_expr = MIRExpression {
+            inner: MIRExpressionInner::Variable(Cow::Owned(local_name.clone())),
+            ty: Some(expression_ty.clone()),
+            span: expr.span.clone(),
+        };
+    } else {
+        final_expr = new_expr;
+    }
+
+    // This needs to be applied in reverse
+    // order, since that's how it's
+    // constructed.
+    child_post.reverse();
+    pre.append(&mut child_post);
+
+    final_expr
 }

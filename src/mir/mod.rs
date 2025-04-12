@@ -3,7 +3,7 @@ pub mod lower;
 mod scope;
 mod type_check;
 
-use crate::mir::expr::{const_eval, const_optimize_expr};
+use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
 use crate::mir::type_check::type_check;
 use crate::parser::file_cache::FileCache;
 use std::borrow::Cow;
@@ -37,6 +37,8 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
     if !const_optimize_expr(ctx) {
         return false;
     }
+
+    split_exprs_to_locals(ctx);
 
     true
 }

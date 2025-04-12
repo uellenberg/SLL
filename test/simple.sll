@@ -5,6 +5,5 @@ static test: u32 = b + 5 - 2 * (5 - 8);
 
 function main() {
     let v: ();
-    test = v;
-    test = 1 + b + test + v;
+    test = 1 + b + test;
 }
