@@ -3,6 +3,7 @@ use crate::mir::{
     MIRConstant, MIRExpression, MIRExpressionInner, MIRFunction, MIRProgram, MIRStatement,
     MIRStatic, MIRTypeInner, MIRVariable,
 };
+use std::borrow::Cow;
 
 /// Converts a MIRProgram into an IRProgram.
 pub fn mir_to_ir<'a>(program: &MIRProgram<'a>) -> IRProgram<'a> {
@@ -55,17 +56,73 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
             IRStatement::CreateVariable(lower_variable(mir_var))
         }
         MIRStatement::DropVariable(name, ..) => IRStatement::DropVariable(name.clone()),
-        MIRStatement::SetVariable {
-            name,
-            value:
-                MIRExpression {
-                    inner: MIRExpressionInner::Number(num, ..),
-                    ..
-                },
+        MIRStatement::SetVariable { name, value, .. } => lower_set_variable(name.clone(), &value),
+        other => panic!("Unhandled statement during MIR lowering: {other:?}"),
+    }
+}
+
+/// Lowers MIRStatement::SetVariable.
+fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRStatement<'a> {
+    match value {
+        MIRExpression {
+            inner: MIRExpressionInner::Number(num, ..),
             ..
         } => IRStatement::SetVariableNum {
             name: name.clone(),
             value: *num,
+        },
+        MIRExpression {
+            inner: MIRExpressionInner::Variable(var, ..),
+            ..
+        } => IRStatement::SetVariableVariable {
+            name: name.clone(),
+            value: var.clone(),
+        },
+        MIRExpression {
+            inner:
+                MIRExpressionInner::Add(
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Number(num),
+                        ..
+                    },
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Variable(var),
+                        ..
+                    },
+                )
+                | MIRExpressionInner::Add(
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Variable(var),
+                        ..
+                    },
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Number(num),
+                        ..
+                    },
+                ),
+            ..
+        } => IRStatement::SetVariableAddNumVariable {
+            name: name.clone(),
+            value: (*num, var.clone()),
+        },
+        // No need to handle num num as const eval
+        // removes it.
+        MIRExpression {
+            inner:
+                MIRExpressionInner::Add(
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Variable(var1),
+                        ..
+                    },
+                    box MIRExpression {
+                        inner: MIRExpressionInner::Variable(var2),
+                        ..
+                    },
+                ),
+            ..
+        } => IRStatement::SetVariableAddVariableVariable {
+            name: name.clone(),
+            value: (var1.clone(), var2.clone()),
         },
         other => panic!("Unhandled statement during MIR lowering: {other:?}"),
     }

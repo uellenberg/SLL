@@ -98,8 +98,35 @@ pub enum IRStatement<'a> {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
-        /// Is the number to set it to.
+        /// Is the value to set the variable to.
         value: i64,
+    },
+
+    /// Sets a variable to another variable.
+    SetVariableVariable {
+        /// Is the variable's name.
+        name: Cow<'a, str>,
+
+        /// Is the value to set the variable to.
+        value: Cow<'a, str>,
+    },
+
+    /// Sets a variable to another variable.
+    SetVariableAddNumVariable {
+        /// Is the variable's name.
+        name: Cow<'a, str>,
+
+        /// Is the value to set the variable to.
+        value: (i64, Cow<'a, str>),
+    },
+
+    /// Sets a variable to another variable.
+    SetVariableAddVariableVariable {
+        /// Is the variable's name.
+        name: Cow<'a, str>,
+
+        /// Is the value to set the variable to.
+        value: (Cow<'a, str>, Cow<'a, str>),
     },
 }
 

@@ -1,3 +1,5 @@
+#![feature(box_patterns)]
+
 use crate::mir::lower::mir_to_ir;
 use crate::mir::{MIRContext, visit_mir};
 use crate::parser::parse_file;
@@ -19,5 +21,5 @@ fn main() {
 
     let ir = mir_to_ir(&mir_ctx.program);
 
-    println!("{ir:?}");
+    println!("{ir:#?}");
 }
