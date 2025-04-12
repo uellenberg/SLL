@@ -139,6 +139,9 @@ pub enum IRType<'a> {
     /// Unsigned 32-bit integer.
     U32,
 
+    /// Boolean value.
+    Bool,
+
     /// A named type (struct).
     Named(Cow<'a, str>),
 }

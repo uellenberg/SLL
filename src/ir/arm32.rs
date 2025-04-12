@@ -55,9 +55,10 @@ pub fn ir_to_arm32<'a>(program: &IRProgram<'a>) -> String {
 }
 
 /// Converts IRType to its size and alignment.
-fn lower_type<'a>(ir_type: &IRType<'a>) -> TypeData {
+fn lower_type(ir_type: &IRType) -> TypeData {
     match ir_type {
         IRType::U32 => TypeData { size: 4, align: 4 },
+        IRType::Bool => TypeData { size: 1, align: 1 },
         IRType::Named(val) => todo!(),
     }
 }

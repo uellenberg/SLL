@@ -42,7 +42,7 @@ createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
 
 setVariable = { identifier ~ "=" ~ expression ~ ";" }
 
-variableType = { "u32" | "()" }
+variableType = { "u32" | "bool" | "()" }
 
 expression = { addition }
 
@@ -57,7 +57,7 @@ multiplication = {
 }
 
 primary = {
-    number | identifier | "(" ~ expression ~ ")"
+    number | boolLiteral | identifier | "(" ~ expression ~ ")"
 }
 
 additionOp = { "+" | "-" }
@@ -74,6 +74,8 @@ number = @{
     ("0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*) ~
     ("." ~ ASCII_DIGIT*)?
 }
+
+boolLiteral = { "true" | "false" }
 
 space = _{ WHITESPACE* }
 

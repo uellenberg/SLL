@@ -264,6 +264,11 @@ fn check_expression<'a>(
                     span: None,
                 })
             }
+            MIRExpressionInner::Bool(_) => Some(MIRType {
+                ty: MIRTypeInner::Bool,
+                // Span is added after.
+                span: None,
+            }),
         }
     })()?;
 

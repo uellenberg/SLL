@@ -200,6 +200,7 @@ fn reduce_expr<'a>(
             MIRExpressionInner::Div(Box::new(left), Box::new(right))
         }
         MIRExpressionInner::Number(val) => MIRExpressionInner::Number(*val),
+        MIRExpressionInner::Bool(val) => MIRExpressionInner::Bool(*val),
         MIRExpressionInner::Variable(name) => get_const(name.clone())
             .map(|v| v.inner)
             .unwrap_or(MIRExpressionInner::Variable(name.clone())),
@@ -323,6 +324,7 @@ fn split_expr_to_locals<'a>(
         // Primitive expressions don't need variables.
         MIRExpressionInner::Variable(val) => (MIRExpressionInner::Variable(val.clone()), false),
         MIRExpressionInner::Number(val) => (MIRExpressionInner::Number(*val), false),
+        MIRExpressionInner::Bool(val) => (MIRExpressionInner::Bool(*val), false),
     };
 
     // Add span and type information back to

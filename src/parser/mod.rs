@@ -328,6 +328,7 @@ fn parse_primary<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression
     let expr = match data.as_rule() {
         Rule::number => MIRExpressionInner::Number(parse_number(data)),
         Rule::identifier => MIRExpressionInner::Variable(Cow::Borrowed(data.as_str())),
+        Rule::boolLiteral => MIRExpressionInner::Bool(data.as_str() == "true"),
         Rule::expression => {
             // Expand expression span to include parenthases.
             let mut expr = parse_expression(location, data);
@@ -350,6 +351,7 @@ fn parse_type<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRType<'a> {
 
     let ty = match value.as_str() {
         "u32" => MIRTypeInner::U32,
+        "bool" => MIRTypeInner::Bool,
         "()" => MIRTypeInner::Unit,
         _ => unreachable!(),
     };

@@ -36,6 +36,7 @@ pub fn mir_to_ir<'a>(program: &MIRProgram<'a>) -> IRProgram<'a> {
 fn lower_type<'a>(mir_type: &MIRTypeInner<'a>) -> IRType<'a> {
     match mir_type {
         MIRTypeInner::U32 => IRType::U32,
+        MIRTypeInner::Bool => IRType::Bool,
         MIRTypeInner::Unit => unreachable!("Unit type does not exist in IR!"),
         MIRTypeInner::Named(val) => IRType::Named(val.clone()),
     }
@@ -70,6 +71,13 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
         } => IRStatement::SetVariableNum {
             name: name.clone(),
             value: *num,
+        },
+        MIRExpression {
+            inner: MIRExpressionInner::Bool(val, ..),
+            ..
+        } => IRStatement::SetVariableNum {
+            name: name.clone(),
+            value: if *val { 1 } else { 0 },
         },
         MIRExpression {
             inner: MIRExpressionInner::Variable(var, ..),

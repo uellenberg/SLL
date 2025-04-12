@@ -227,6 +227,9 @@ pub enum MIRExpressionInner<'a> {
     /// Number literal.
     Number(i64),
 
+    /// Bool literal.
+    Bool(bool),
+
     /// Variable access.
     Variable(Cow<'a, str>),
 }
@@ -252,6 +255,9 @@ pub enum MIRTypeInner<'a> {
     /// Unsigned 32-bit integer.
     U32,
 
+    /// Boolean value.
+    Bool,
+
     /// Unit type (void).
     Unit,
 
@@ -264,6 +270,7 @@ impl<'a> From<MIRTypeInner<'a>> for Cow<'a, str> {
         match value {
             MIRTypeInner::U32 => Cow::Borrowed("u32"),
             MIRTypeInner::Unit => Cow::Borrowed("()"),
+            MIRTypeInner::Bool => Cow::Borrowed("bool"),
             MIRTypeInner::Named(val) => val,
         }
     }
