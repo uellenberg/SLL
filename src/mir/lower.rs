@@ -258,6 +258,20 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             binary_vv_out!(var1, var2, IRBinaryOperation::LessEq32)
         }
 
+        binary_lv_in!(
+            MIRExpressionInner::Equal,
+            MIRExpressionInner::Bool,
+            val,
+            var
+        ) => binary_lv_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::Equal32),
+
+        binary_lv_in!(
+            MIRExpressionInner::NotEqual,
+            MIRExpressionInner::Bool,
+            val,
+            var
+        ) => binary_lv_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::NotEqual32),
+
         other => panic!("Unhandled expression during MIR lowering: {other:?}"),
     }
 }

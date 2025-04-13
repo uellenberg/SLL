@@ -5,7 +5,7 @@ use std::mem::swap;
 
 /// A scope containing currently
 /// available variables.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct Scope<'a> {
     /// The variables currently in scope.
     /// If shadowing occurs, a variable will
@@ -21,6 +21,21 @@ pub struct Scope<'a> {
     /// This means deduplication MUST happen
     /// before drop analysis.
     pub to_drop: Vec<MIRVariable<'a>>,
+}
+
+impl<'a> Scope<'a> {
+    /// Creates a new scope to be used
+    /// in a sub block of the parent
+    /// scope.
+    pub fn child(&self) -> Self {
+        Self {
+            variables: self.variables.clone(),
+            // The parent's variables shouldn't
+            // be dropped at the end of this
+            // scope.
+            to_drop: vec![],
+        }
+    }
 }
 
 /// Explores every statement in a block,
@@ -79,7 +94,7 @@ fn explore_block_internal<'a>(
     on_scope_drop: &impl Fn(&MIRVariable<'a>, &Scope) -> bool,
     parent_scope: &Scope<'a>,
 ) -> bool {
-    let mut scope = parent_scope.clone();
+    let mut scope = parent_scope.child();
 
     for statement in block {
         explore_recurse!(statement, (block) => {
@@ -160,7 +175,7 @@ fn explore_block_mut_internal<'a>(
     on_scope_drop: &impl Fn(&MIRVariable<'a>, &Scope) -> bool,
     parent_scope: &Scope<'a>,
 ) -> bool {
-    let mut scope = parent_scope.clone();
+    let mut scope = parent_scope.child();
 
     for statement in block {
         explore_recurse!(statement, (block) => {
@@ -214,7 +229,7 @@ fn rewrite_block_internal<'a>(
     on_scope_end: &mut impl FnMut(&Scope<'a>, &mut Vec<MIRStatement<'a>>) -> bool,
     parent_scope: &Scope<'a>,
 ) -> bool {
-    let mut scope = parent_scope.clone();
+    let mut scope = parent_scope.child();
 
     let mut old_block = vec![];
     swap(block, &mut old_block);

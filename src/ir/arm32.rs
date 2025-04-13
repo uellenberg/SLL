@@ -101,7 +101,8 @@ fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
         todo!();
     }
 
-    ctx.push_label(ir_function.name.to_string());
+    // Function names are unique.
+    ctx.push_label(format!(".{}", ir_function.name));
 
     // Save calling data.
     ctx.push_instruction("PUSH".into(), "{FP, LR}".into());
@@ -140,7 +141,8 @@ fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
         lower_statement(ctx, &mut stack_alloc, statement);
     }
 
-    ctx.push_label(format!("{}_ret", ir_function.name));
+    // Function names are unique.
+    ctx.push_label(format!(".{}_ret", ir_function.name));
 
     // Restore stack.
     ctx.push_instruction("MOV".into(), "SP, FP".into());
@@ -330,14 +332,15 @@ fn lower_statement<'a>(
             store_var!(output_data, "R0");
         }
         IRStatement::Label { name } => {
-            ctx.push_label(name.to_string());
+            // Label names are unique.
+            ctx.push_label(format!(".{}", name));
         }
-        IRStatement::Goto { name } => ctx.push_instruction("B".into(), name.to_string()),
+        IRStatement::Goto { name } => ctx.push_instruction("B".into(), format!(".{}", name)),
         IRStatement::GotoNotEqual { name, condition } => {
             load_op!(condition, lower_type(&IRType::Bool), "R0");
 
             ctx.push_instruction("CMP".into(), "R0, #1".into());
-            ctx.push_instruction("BNE".into(), name.to_string());
+            ctx.push_instruction("BNE".into(), format!(".{}", name));
         }
     }
 }

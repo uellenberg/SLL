@@ -1,7 +1,6 @@
 use crate::mir::scope::{explore_block_mut, rewrite_block};
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRType,
-    MIRTypeInner, MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRType, MIRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
