@@ -2,6 +2,7 @@ use crate::ir::alloc::{StackAllocator, TypeData};
 use crate::ir::{
     IRBinaryOperation, IRConstant, IRFunction, IRProgram, IRStatement, IRStatic, IRType,
 };
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 #[derive(Default)]
@@ -157,6 +158,46 @@ fn lower_statement<'a>(
     ir_statement: &IRStatement<'a>,
 ) {
     // TODO: Handle statics and constants.
+    macro_rules! load_var {
+        ($var_data:expr, $reg:expr) => {
+            if $var_data.1.size == 4 {
+                ctx.push_instruction("LDR".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
+            } else if $var_data.1.size == 1 {
+                ctx.push_instruction("LDRB".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
+            } else {
+                todo!()
+            }
+        };
+    }
+
+    macro_rules! binary_op {
+        ($op:expr, ($left_reg:expr, $right_reg:expr) => $store_reg:expr) => {
+            match $op {
+                IRBinaryOperation::Add32 => {
+                    ctx.push_instruction(
+                        "ADD".into(),
+                        format!("{}, {}, {}", $store_reg, $left_reg, $right_reg),
+                    );
+                }
+                IRBinaryOperation::Equal32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVEQ".into(), format!("{}, #1", $store_reg));
+                }
+                _ => todo!(),
+            }
+        };
+    }
+
+    macro_rules! store_var {
+        ($var_data:expr, $reg:expr) => {
+            if $var_data.1.size == 4 {
+                ctx.push_instruction("STR".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
+            } else if $var_data.1.size == 1 {
+                ctx.push_instruction("STRB".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
+            }
+        };
+    }
 
     match ir_statement {
         IRStatement::CreateVariable(var) => {
@@ -190,19 +231,9 @@ fn lower_statement<'a>(
             // data than the input can give it.
             assert!(output_data.1.size <= var_data.1.size);
 
-            if var_data.1.size == 4 {
-                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var_data.0));
-            } else if var_data.1.size == 1 {
-                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var_data.0));
-            } else {
-                todo!()
-            }
+            load_var!(var_data, "R0");
 
-            if output_data.1.size == 4 {
-                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
-            } else if output_data.1.size == 1 {
-                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
-            }
+            store_var!(output_data, "R0");
         }
         IRStatement::SetVariableOpVariableVariable {
             name,
@@ -221,33 +252,12 @@ fn lower_statement<'a>(
             // data than the input can give it.
             assert!(output_data.1.size <= var1_data.1.size);
 
-            if var1_data.1.size == 4 {
-                ctx.push_instruction("LDR".into(), format!("R0, [FP, #-{}]", var1_data.0));
-                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var2_data.0));
-            } else if var1_data.1.size == 1 {
-                ctx.push_instruction("LDRB".into(), format!("R0, [FP, #-{}]", var1_data.0));
-                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var2_data.0));
-            } else {
-                todo!()
-            }
+            load_var!(var1_data, "R0");
+            load_var!(var2_data, "R1");
 
-            match op {
-                IRBinaryOperation::Add32 => {
-                    ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
-                }
-                IRBinaryOperation::Equal32 => {
-                    ctx.push_instruction("CMP".into(), "R0, R1".into());
-                    ctx.push_instruction("MOV".into(), "R0, #0".into());
-                    ctx.push_instruction("MOVEQ".into(), "R0, #1".into());
-                }
-                _ => todo!(),
-            }
+            binary_op!(op, ("R0", "R1") => "R0");
 
-            if output_data.1.size == 4 {
-                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
-            } else if output_data.1.size == 1 {
-                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
-            }
+            store_var!(output_data, "R0");
         }
         IRStatement::SetVariableOpNumVariable {
             name,
@@ -267,31 +277,11 @@ fn lower_statement<'a>(
                 todo!();
             }
 
-            if var_data.1.size == 4 {
-                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var_data.0));
-            } else if var_data.1.size == 1 {
-                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var_data.0));
-            } else {
-                todo!()
-            }
+            load_var!(var_data, "R1");
 
-            match op {
-                IRBinaryOperation::Add32 => {
-                    ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
-                }
-                IRBinaryOperation::Equal32 => {
-                    ctx.push_instruction("CMP".into(), "R0, R1".into());
-                    ctx.push_instruction("MOV".into(), "R0, #0".into());
-                    ctx.push_instruction("MOVEQ".into(), "R0, #1".into());
-                }
-                _ => todo!(),
-            }
+            binary_op!(op, ("R0", "R1") => "R0");
 
-            if output_data.1.size == 4 {
-                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
-            } else if output_data.1.size == 1 {
-                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
-            }
+            store_var!(output_data, "R0");
         }
     }
 }
