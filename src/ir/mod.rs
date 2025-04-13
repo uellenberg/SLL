@@ -96,28 +96,25 @@ pub enum IRStatement<'a> {
     /// invalidates it.
     DropVariable(Cow<'a, str>),
 
-    /// Sets a variable to another variable
-    /// or literal.
-    SetVariableUnary {
+    /// Sets a variable to a new value.
+    SetVariable {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
         /// Is the value to set the variable to.
-        value: IRLoadUnary<'a>,
+        value: IRLoadOp<'a>,
     },
+}
 
-    /// Sets a variable to the result
-    /// of a binary operation.
-    SetVariableBinaryOp {
-        /// Is the variable's name.
-        name: Cow<'a, str>,
+/// Performs a load and an optional
+/// operation.
+#[derive(Debug)]
+pub enum IRLoadOp<'a> {
+    /// Performs a unary operation.
+    Unary(IRLoadUnary<'a>),
 
-        /// Is the value to set the variable to.
-        value: IRLoadBinary<'a>,
-
-        /// Is the operation to perform.
-        op: IRBinaryOperation,
-    },
+    /// Performs a binary operation.
+    Binary(IRBinaryOperation, IRLoadBinary<'a>),
 }
 
 /// A single piece of data that's

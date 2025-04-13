@@ -1,7 +1,7 @@
 use crate::ir::alloc::{StackAllocator, TypeData};
 use crate::ir::{
-    IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadUnary, IRProgram, IRStatement,
-    IRStatic, IRType,
+    IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary, IRProgram,
+    IRStatement, IRStatic, IRType,
 };
 use std::borrow::Cow;
 use std::fmt::Write as _;
@@ -252,67 +252,73 @@ fn lower_statement<'a>(
         IRStatement::DropVariable(name) => {
             stack_alloc.drop(name);
         }
-        IRStatement::SetVariableUnary { name, value } => {
+        IRStatement::SetVariable { name, value } => {
             let output_data = stack_alloc.get(name);
 
             match value {
-                IRLoadUnary::Num(value) => {
-                    if value >= &0 && value <= &65535 {
-                        ctx.push_instruction("MOV".into(), format!("R0, #{}", value.to_string()));
-                    } else {
-                        todo!();
+                IRLoadOp::Unary(value) => {
+                    match value {
+                        IRLoadUnary::Num(value) => {
+                            if value >= &0 && value <= &65535 {
+                                ctx.push_instruction(
+                                    "MOV".into(),
+                                    format!("R0, #{}", value.to_string()),
+                                );
+                            } else {
+                                todo!();
+                            }
+                        }
+                        IRLoadUnary::Variable(value) => {
+                            let var_data = stack_alloc.get(value);
+
+                            // The output type can't expect more
+                            // data than the input can give it.
+                            assert!(output_data.1.size <= var_data.1.size);
+
+                            load_var!(var_data, "R0");
+                        }
                     }
                 }
-                IRLoadUnary::Variable(value) => {
-                    let var_data = stack_alloc.get(value);
+                IRLoadOp::Binary(op, value) => {
+                    match value {
+                        IRLoadBinary::VariableVariable(var1, var2) => {
+                            let var1_data = stack_alloc.get(var1);
+                            let var2_data = stack_alloc.get(var2);
 
-                    // The output type can't expect more
-                    // data than the input can give it.
-                    assert!(output_data.1.size <= var_data.1.size);
+                            // We can't perform binary operations
+                            // on different types.
+                            assert_eq!(var1_data.1, var2_data.1);
 
-                    load_var!(var_data, "R0");
-                }
-            }
+                            // The output type can't expect more
+                            // data than the input can give it.
+                            assert!(output_data.1.size <= var1_data.1.size);
 
-            store_var!(output_data, "R0");
-        }
-        IRStatement::SetVariableBinaryOp { name, value, op } => {
-            let output_data = stack_alloc.get(name);
+                            load_var!(var1_data, "R0");
+                            load_var!(var2_data, "R1");
+                        }
+                        IRLoadBinary::NumVariable(num, var) => {
+                            let var_data = stack_alloc.get(var);
 
-            match value {
-                IRLoadBinary::VariableVariable(var1, var2) => {
-                    let var1_data = stack_alloc.get(var1);
-                    let var2_data = stack_alloc.get(var2);
+                            // The output type can't expect more
+                            // data than the input can give it.
+                            assert!(output_data.1.size <= var_data.1.size);
 
-                    // We can't perform binary operations
-                    // on different types.
-                    assert_eq!(var1_data.1, var2_data.1);
+                            if num >= &0 && num <= &65535 {
+                                ctx.push_instruction(
+                                    "MOV".into(),
+                                    format!("R0, #{}", num.to_string()),
+                                );
+                            } else {
+                                todo!();
+                            }
 
-                    // The output type can't expect more
-                    // data than the input can give it.
-                    assert!(output_data.1.size <= var1_data.1.size);
-
-                    load_var!(var1_data, "R0");
-                    load_var!(var2_data, "R1");
-                }
-                IRLoadBinary::NumVariable(num, var) => {
-                    let var_data = stack_alloc.get(var);
-
-                    // The output type can't expect more
-                    // data than the input can give it.
-                    assert!(output_data.1.size <= var_data.1.size);
-
-                    if num >= &0 && num <= &65535 {
-                        ctx.push_instruction("MOV".into(), format!("R0, #{}", num.to_string()));
-                    } else {
-                        todo!();
+                            load_var!(var_data, "R1");
+                        }
                     }
 
-                    load_var!(var_data, "R1");
+                    binary_op!(op, ("R0", "R1") => "R0");
                 }
             }
-
-            binary_op!(op, ("R0", "R1") => "R0");
 
             store_var!(output_data, "R0");
         }
