@@ -211,6 +211,28 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                     span,
                 ));
             }
+            Rule::createSetVariable => {
+                let mut data = pair.into_inner();
+
+                let identifier = data.next().unwrap().as_str();
+                let ty = parse_type(location, data.next().unwrap());
+                let value = parse_expression(location, data.next().unwrap());
+
+                body.push(MIRStatement::CreateVariable(
+                    MIRVariable {
+                        name: Cow::Borrowed(identifier),
+                        ty,
+                        span: span.clone(),
+                    },
+                    span.clone(),
+                ));
+
+                body.push(MIRStatement::SetVariable {
+                    name: Cow::Borrowed(identifier),
+                    value,
+                    span,
+                });
+            }
             Rule::setVariable => {
                 let mut data = pair.into_inner();
 

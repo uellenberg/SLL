@@ -34,12 +34,15 @@ functionArg = { identifier ~ ":" ~ variableType }
 functionBody = { functionStatement+ }
 
 functionStatement = _{
-    createVariable
+    createSetVariable
+    | createVariable
     | ifStatement
     | setVariable
 }
 
 createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
+
+createSetVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ expression ~ ";" }
 
 setVariable = { identifier ~ "=" ~ expression ~ ";" }
 
