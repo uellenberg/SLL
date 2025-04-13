@@ -82,6 +82,28 @@ fn print_unexpected_expr_ty(
         .unwrap();
 }
 
+/// Prints an error for when an expression
+/// returns an unexpected type.
+fn print_var_does_not_exist(ctx: &MIRContext<'_>, var_name: Cow<'_, str>, var_span: Span<'_>) {
+    let mut colors = ColorGenerator::new();
+
+    let var_color = colors.next();
+
+    let var_name_str = var_name.fg(var_color);
+
+    Report::build(ReportKind::Error, var_span.clone())
+        .with_label(
+            Label::new(var_span)
+                .with_message("Could not find variable")
+                .with_color(var_color),
+        )
+        .with_message(format!("Variable {var_name_str} does not exist"))
+        .with_help("Maybe this variable was defined in a different scope?")
+        .finish()
+        .eprint(ctx.file_cache.clone())
+        .unwrap();
+}
+
 /// Checks whether the given constant is valid,
 /// and modifies its type information to match.
 fn check_constant<'a>(ctx: &MIRContext<'a>, constant: &mut MIRConstant<'a>) -> bool {
@@ -138,17 +160,18 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                 MIRStatement::DropVariable(..) => {}
                 MIRStatement::Goto { .. } => {}
                 MIRStatement::Label { .. } => {}
-                MIRStatement::SetVariable { value, name, .. } => {
+                MIRStatement::SetVariable { value, name, span } => {
                     let var_ty;
 
                     if let Some(var) = scope.variables.get(name) {
                         var_ty = var.ty.clone();
-                    } else if let Some(var) = ctx.program.constants.get(name) {
-                        var_ty = var.ty.clone();
                     } else if let Some(var) = ctx.program.statics.get(name) {
                         var_ty = var.ty.clone();
+                    } else if let Some(var) = ctx.program.constants.get(name) {
+                        eprintln!("Cannot set constants!");
+                        return false;
                     } else {
-                        eprintln!("Cannot set variable {name}: variable does not exist in scope!");
+                        print_var_does_not_exist(ctx, name.clone(), span.clone());
                         return false;
                     }
 
@@ -337,7 +360,7 @@ fn check_expression<'a>(
                     return None;
                 }
 
-                eprintln!("Variable doesn't exist: {expr:?}");
+                print_var_does_not_exist(ctx, name.clone(), expr.span.clone());
                 None
             }
             MIRExpressionInner::Number(num) => {
