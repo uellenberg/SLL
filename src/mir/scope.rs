@@ -47,6 +47,31 @@ pub fn explore_block<'a>(
     explore_block_internal(block, for_each, on_scope_drop, &Scope::default())
 }
 
+macro_rules! explore_recurse {
+    ($statement:expr, ($list:ident) => $recurse:block) => {
+        match $statement {
+            // Doesn't include sub blocks.
+            MIRStatement::SetVariable { .. } => {}
+            MIRStatement::Goto { .. } => {}
+            MIRStatement::Label { .. } => {}
+            MIRStatement::CreateVariable(..) => {}
+            MIRStatement::DropVariable(..) => {}
+
+            MIRStatement::IfStatement {
+                on_true, on_false, ..
+            } => {
+                let $list = on_true;
+                {
+                    $recurse
+                }
+
+                let $list = on_false;
+                { $recurse }
+            }
+        }
+    };
+}
+
 fn explore_block_internal<'a>(
     block: &[MIRStatement<'a>],
     for_each: &impl Fn(&MIRStatement<'a>, &Scope<'a>) -> bool,
@@ -56,6 +81,10 @@ fn explore_block_internal<'a>(
     let mut scope = parent_scope.clone();
 
     for statement in block {
+        explore_recurse!(statement, (block) => {
+            explore_block_internal(block, for_each, on_scope_drop, &scope);
+        });
+
         if !for_each(statement, &scope) {
             return false;
         }
@@ -74,6 +103,10 @@ fn explore_block_handle_scope<'a>(statement: &MIRStatement<'a>, scope: &mut Scop
     match statement {
         // Doesn't create / drop variables.
         MIRStatement::SetVariable { .. } => {}
+        MIRStatement::IfStatement { .. } => {}
+        MIRStatement::Goto { .. } => {}
+        MIRStatement::Label { .. } => {}
+
         MIRStatement::CreateVariable(var, ..) => {
             scope.variables.insert(var.name.clone(), var.clone());
             scope.to_drop.push(var.clone());
@@ -128,6 +161,10 @@ fn explore_block_mut_internal<'a>(
     let mut scope = parent_scope.clone();
 
     for statement in block {
+        explore_recurse!(statement, (block) => {
+            explore_block_mut_internal(block, for_each, on_scope_drop, &scope);
+        });
+
         if !for_each(statement, &scope) {
             return false;
         }
@@ -180,8 +217,10 @@ fn rewrite_block_internal<'a>(
     let mut old_block = vec![];
     swap(block, &mut old_block);
 
-    for statement in old_block {
-        // TODO: Handle block recursion here.
+    for mut statement in old_block {
+        explore_recurse!(&mut statement, (block) => {
+            rewrite_block_internal(block, for_each, on_scope_end, &scope);
+        });
 
         if !for_each(statement.clone(), &scope, block) {
             return false;

@@ -35,12 +35,34 @@ functionBody = { functionStatement+ }
 
 functionStatement = _{
     createVariable
+    | ifStatement
     | setVariable
 }
 
 createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
 
 setVariable = { identifier ~ "=" ~ expression ~ ";" }
+
+ifStatement = {
+    "if" ~
+    expression ~
+    "{" ~
+    functionBody ~
+    "}" ~
+    ifElse?
+}
+
+ifElse = {
+    "else" ~
+    (
+        ifStatement
+        | (
+            "{" ~
+            functionBody ~
+            "}"
+        )
+    )
+}
 
 variableType = { "u32" | "bool" | "()" }
 

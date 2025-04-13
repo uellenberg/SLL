@@ -129,13 +129,15 @@ fn check_static<'a>(ctx: &MIRContext<'a>, static_data: &mut MIRStatic<'a>) -> bo
 fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> bool {
     // TODO: Check return types.
 
-    let res = explore_block_mut(
+    explore_block_mut(
         &mut function.body,
         &|statement, scope| {
             match statement {
                 // No expressions.
                 MIRStatement::CreateVariable(..) => {}
                 MIRStatement::DropVariable(..) => {}
+                MIRStatement::Goto { .. } => {}
+                MIRStatement::Label { .. } => {}
                 MIRStatement::SetVariable { value, name, .. } => {
                     let var_ty;
 
@@ -160,18 +162,32 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                         return false;
                     }
                 }
+                MIRStatement::IfStatement {
+                    condition, span, ..
+                } => {
+                    let Some(cond_ty) = check_expression(ctx, condition, Some(scope)) else {
+                        return false;
+                    };
+
+                    if cond_ty.ty != MIRTypeInner::Bool {
+                        print_unexpected_expr_ty(
+                            ctx,
+                            MIRType {
+                                ty: MIRTypeInner::Bool,
+                                span: Some(span.clone()),
+                            },
+                            cond_ty,
+                            condition.span.clone(),
+                        );
+                        return false;
+                    }
+                }
             }
 
             true
         },
         &|_, _| true,
-    );
-
-    if !res {
-        return false;
-    }
-
-    true
+    )
 }
 
 /// Prints an error for when an expression

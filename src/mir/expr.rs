@@ -1,6 +1,7 @@
-use crate::mir::scope::rewrite_block;
+use crate::mir::scope::{explore_block_mut, rewrite_block};
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRType,
+    MIRTypeInner, MIRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -36,15 +37,31 @@ pub fn const_eval(ctx: &mut MIRContext<'_>) -> bool {
 /// This MUST occur after const evaluation.
 pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
     for function in ctx.program.functions.values_mut() {
-        for statement in function.body.iter_mut() {
-            match statement {
-                // No expressions.
-                MIRStatement::CreateVariable(_, ..) => {}
-                MIRStatement::DropVariable(_, ..) => {}
-                MIRStatement::SetVariable { value, .. } => {
-                    *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
+        let res = explore_block_mut(
+            &mut function.body,
+            &|statement, _scope| {
+                match statement {
+                    // No expressions.
+                    MIRStatement::CreateVariable(_, ..) => {}
+                    MIRStatement::DropVariable(_, ..) => {}
+                    MIRStatement::Goto { .. } => {}
+                    MIRStatement::Label { .. } => {}
+
+                    MIRStatement::SetVariable { value, .. } => {
+                        *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
+                    }
+                    MIRStatement::IfStatement { condition, .. } => {
+                        *condition = reduce_expr_simple(&ctx.program.constants, &condition.clone());
+                    }
                 }
-            }
+
+                true
+            },
+            &|_, _| true,
+        );
+
+        if !res {
+            return false;
         }
     }
 
@@ -231,19 +248,39 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
         if !rewrite_block(
             &mut function.body,
             &mut |statement, scope, block| {
-                let new_statement = match &statement {
+                let new_statement = match statement {
                     // No expressions.
-                    MIRStatement::CreateVariable(..) | MIRStatement::DropVariable(..) => {
+                    MIRStatement::CreateVariable(..)
+                    | MIRStatement::DropVariable(..)
+                    | MIRStatement::Goto { .. }
+                    | MIRStatement::Label { .. } => {
                         block.push(statement);
                         return true;
                     }
+                    MIRStatement::IfStatement {
+                        condition,
+                        on_true,
+                        on_false,
+                        span,
+                    } => {
+                        let new_condition =
+                            split_expr_to_locals(&condition, &mut pre, &mut post, &local_idx);
+
+                        MIRStatement::IfStatement {
+                            condition: new_condition,
+                            on_true,
+                            on_false,
+                            span,
+                        }
+                    }
                     MIRStatement::SetVariable { value, name, span } => {
-                        let new_expr = split_expr_to_locals(value, &mut pre, &mut post, &local_idx);
+                        let new_expr =
+                            split_expr_to_locals(&value, &mut pre, &mut post, &local_idx);
 
                         MIRStatement::SetVariable {
                             value: new_expr,
-                            name: name.clone(),
-                            span: span.clone(),
+                            name,
+                            span,
                         }
                     }
                 };

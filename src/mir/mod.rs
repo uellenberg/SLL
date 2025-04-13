@@ -190,6 +190,42 @@ pub enum MIRStatement<'a> {
         /// this item.
         span: Span<'a>,
     },
+
+    /// A label that can be jumped to.
+    Label {
+        /// The label's name.
+        name: Cow<'a, str>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
+    /// Jumps to the specified label.
+    Goto {
+        /// The name of the label to jump to.
+        name: Cow<'a, str>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
+    /// An if statement.
+    IfStatement {
+        /// The if statement's condition.
+        condition: MIRExpression<'a>,
+
+        /// Code that runs on the true case.
+        on_true: Vec<MIRStatement<'a>>,
+
+        /// Code that runs on the false case.
+        on_false: Vec<MIRStatement<'a>>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
 }
 
 /// An expression that evaluates to some

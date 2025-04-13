@@ -6,7 +6,6 @@ use crate::mir::{
 };
 use ariadne::{ColorGenerator, Label, Report, ReportKind};
 use pest::Parser;
-use pest::error::Error;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::borrow::Cow;
@@ -224,11 +223,45 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                     span,
                 });
             }
+            Rule::ifStatement => {
+                body.push(parse_if_statement(location, pair));
+            }
             _ => unreachable!(),
         }
     }
 
     body
+}
+
+fn parse_if_statement<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRStatement<'a> {
+    assert_eq!(value.as_rule(), Rule::ifStatement);
+
+    let span = to_span(location, value.as_span());
+
+    let mut data = value.into_inner();
+
+    let condition = parse_expression(location, data.next().unwrap());
+    let on_true = parse_function_body(location, data.next().unwrap());
+    let on_false = data.next().map_or(vec![], |v| parse_if_else(location, v));
+
+    MIRStatement::IfStatement {
+        condition,
+        on_true,
+        on_false,
+        span,
+    }
+}
+
+fn parse_if_else<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIRStatement<'a>> {
+    assert_eq!(value.as_rule(), Rule::ifElse);
+
+    let data = value.into_inner().next().unwrap();
+
+    match data.as_rule() {
+        Rule::ifStatement => vec![parse_if_statement(location, data)],
+        Rule::functionBody => parse_function_body(location, data),
+        _ => unreachable!(),
+    }
 }
 
 fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIRVariable<'a>> {
