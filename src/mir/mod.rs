@@ -1,6 +1,7 @@
 mod drop;
 mod expr;
 mod if_statement;
+mod label;
 pub mod lower;
 mod scope;
 mod type_check;
@@ -8,6 +9,7 @@ mod type_check;
 use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
 use crate::mir::if_statement::flatten_ifs;
+use crate::mir::label::rename_labels;
 use crate::mir::type_check::type_check;
 use crate::parser::file_cache::FileCache;
 use std::borrow::Cow;
@@ -49,7 +51,9 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
     // it erases scope.
     flatten_ifs(ctx);
 
-    println!("{:#?}", ctx.program);
+    // This needs to happen after all
+    // operations that create labels.
+    rename_labels(ctx);
 
     split_exprs_to_locals(ctx);
 

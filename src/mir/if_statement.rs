@@ -76,7 +76,7 @@ pub fn flatten_ifs(ctx: &mut MIRContext) {
             },
             &mut |_, _| true,
         ) {
-            panic!("split_exprs_to_locals returned false!");
+            panic!("flatten_ifs returned false!");
         }
     }
 }
