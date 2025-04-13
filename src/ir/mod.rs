@@ -104,6 +104,30 @@ pub enum IRStatement<'a> {
         /// Is the value to set the variable to.
         value: IRLoadOp<'a>,
     },
+
+    /// A label that can be jumped to.
+    Label {
+        /// Is the label's name.
+        /// This MUST be unique across
+        /// the entire program.
+        name: Cow<'a, str>,
+    },
+
+    /// Jumps to a label.
+    Goto {
+        /// The name of the label to jump to.
+        name: Cow<'a, str>,
+    },
+
+    /// Jumps to a label if
+    /// the condition is false.
+    GotoNotEqual {
+        /// The name of the label to jump to.
+        name: Cow<'a, str>,
+
+        /// Is the condition to check.
+        condition: IRLoadOp<'a>,
+    },
 }
 
 /// Performs a load and an optional

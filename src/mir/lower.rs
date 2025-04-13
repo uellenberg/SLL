@@ -6,7 +6,6 @@ use crate::mir::{
     MIRConstant, MIRExpression, MIRExpressionInner, MIRFunction, MIRProgram, MIRStatement,
     MIRStatic, MIRTypeInner, MIRVariable,
 };
-use std::borrow::Cow;
 
 /// Converts a MIRProgram into an IRProgram.
 pub fn mir_to_ir<'a>(program: &MIRProgram<'a>) -> IRProgram<'a> {
@@ -60,109 +59,92 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
             IRStatement::CreateVariable(lower_variable(mir_var))
         }
         MIRStatement::DropVariable(name, ..) => IRStatement::DropVariable(name.clone()),
-        MIRStatement::SetVariable { name, value, .. } => lower_set_variable(name.clone(), &value),
+        MIRStatement::SetVariable { name, value, .. } => IRStatement::SetVariable {
+            name: name.clone(),
+            value: lower_expression(value),
+        },
+        MIRStatement::Label { name, .. } => IRStatement::Label { name: name.clone() },
+        MIRStatement::Goto { name, .. } => IRStatement::Goto { name: name.clone() },
+        MIRStatement::GotoNotEqual {
+            name, condition, ..
+        } => IRStatement::GotoNotEqual {
+            name: name.clone(),
+            condition: lower_expression(condition),
+        },
         other => panic!("Unhandled statement during MIR lowering: {other:?}"),
     }
 }
 
-/// Lowers MIRStatement::SetVariable.
-fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRStatement<'a> {
+/// Lowers simple MIRExpressions to IRLoadOp.
+fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
     macro_rules! binary_lv_in {
         ($expr_ty:path, $lit_ty:path, $lit_name:ident, $var_name:ident) => {
-            MIRExpression {
-                inner:
-                    $expr_ty(
-                        box MIRExpression {
-                            inner: $lit_ty($lit_name),
-                            ..
-                        },
-                        box MIRExpression {
-                            inner: MIRExpressionInner::Variable($var_name),
-                            ..
-                        },
-                    )
-                    | $expr_ty(
-                        box MIRExpression {
-                            inner: MIRExpressionInner::Variable($var_name),
-                            ..
-                        },
-                        box MIRExpression {
-                            inner: $lit_ty($lit_name),
-                            ..
-                        },
-                    ),
-                ..
-            }
+            $expr_ty(
+                box MIRExpression {
+                    inner: $lit_ty($lit_name),
+                    ..
+                },
+                box MIRExpression {
+                    inner: MIRExpressionInner::Variable($var_name),
+                    ..
+                },
+            )
+            | $expr_ty(
+                box MIRExpression {
+                    inner: MIRExpressionInner::Variable($var_name),
+                    ..
+                },
+                box MIRExpression {
+                    inner: $lit_ty($lit_name),
+                    ..
+                },
+            )
         }
     }
 
     macro_rules! binary_lv_out {
         ($lit_val:expr, $var_name:ident, $op_ty:path) => {
-            IRStatement::SetVariable {
-                name: name.clone(),
-                value: IRLoadOp::Binary(
-                    $op_ty,
-                    IRLoadBinary::NumVariable($lit_val, $var_name.clone()),
-                ),
-            }
+            IRLoadOp::Binary(
+                $op_ty,
+                IRLoadBinary::NumVariable($lit_val, $var_name.clone()),
+            )
         };
     }
 
     macro_rules! binary_vv_in {
         ($expr_ty:path, $var1_name:ident, $var2_name:ident) => {
-            MIRExpression {
-                inner:
-                    $expr_ty(
-                        box MIRExpression {
-                            inner: MIRExpressionInner::Variable($var1_name),
-                            ..
-                        },
-                        box MIRExpression {
-                            inner: MIRExpressionInner::Variable($var2_name),
-                            ..
-                        },
-                    ),
-                ..
-            }
+            $expr_ty(
+                box MIRExpression {
+                    inner: MIRExpressionInner::Variable($var1_name),
+                    ..
+                },
+                box MIRExpression {
+                    inner: MIRExpressionInner::Variable($var2_name),
+                    ..
+                },
+            )
         };
     }
 
     macro_rules! binary_vv_out {
         ($var1_name:ident, $var2_name:ident, $op_ty:path) => {
-            IRStatement::SetVariable {
-                name: name.clone(),
-                value: IRLoadOp::Binary(
-                    $op_ty,
-                    IRLoadBinary::VariableVariable($var1_name.clone(), $var2_name.clone()),
-                ),
-            }
+            IRLoadOp::Binary(
+                $op_ty,
+                IRLoadBinary::VariableVariable($var1_name.clone(), $var2_name.clone()),
+            )
         };
     }
 
-    match value {
-        MIRExpression {
-            inner: MIRExpressionInner::Number(num, ..),
-            ..
-        } => IRStatement::SetVariable {
-            name: name.clone(),
-            value: IRLoadOp::Unary(IRLoadUnary::Num(*num)),
-        },
+    match &value.inner {
+        MIRExpressionInner::Number(num, ..) => IRLoadOp::Unary(IRLoadUnary::Num(*num)),
 
-        MIRExpression {
-            inner: MIRExpressionInner::Bool(val, ..),
-            ..
-        } => IRStatement::SetVariable {
-            name: name.clone(),
-            value: IRLoadOp::Unary(IRLoadUnary::Num(if *val { 1 } else { 0 })),
-        },
+        MIRExpressionInner::Bool(val, ..) => {
+            IRLoadOp::Unary(IRLoadUnary::Num(if *val { 1 } else { 0 }))
+        }
 
-        MIRExpression {
-            inner: MIRExpressionInner::Variable(var, ..),
-            ..
-        } => IRStatement::SetVariable {
-            name: name.clone(),
-            value: IRLoadOp::Unary(IRLoadUnary::Variable(var.clone())),
-        },
+        MIRExpressionInner::Variable(var, ..) => {
+            IRLoadOp::Unary(IRLoadUnary::Variable(var.clone()))
+        }
 
         // No need to handle num num as const eval
         // removes it.
@@ -276,7 +258,7 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
             binary_vv_out!(var1, var2, IRBinaryOperation::LessEq32)
         }
 
-        other => panic!("Unhandled statement during MIR lowering: {other:?}"),
+        other => panic!("Unhandled expression during MIR lowering: {other:?}"),
     }
 }
 

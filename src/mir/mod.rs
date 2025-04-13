@@ -211,6 +211,21 @@ pub enum MIRStatement<'a> {
         span: Span<'a>,
     },
 
+    /// Jumps to the specified label if the
+    /// given condition is not true.
+    GotoNotEqual {
+        /// The name of the label to jump to.
+        name: Cow<'a, str>,
+
+        /// The condition to check.
+        /// If it's false, we'll jump.
+        condition: MIRExpression<'a>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
     /// An if statement.
     IfStatement {
         /// The if statement's condition.

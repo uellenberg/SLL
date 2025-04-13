@@ -3,7 +3,6 @@ use crate::ir::{
     IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary, IRProgram,
     IRStatement, IRStatic, IRType,
 };
-use std::borrow::Cow;
 use std::fmt::Write as _;
 
 #[derive(Default)]
@@ -239,30 +238,22 @@ fn lower_statement<'a>(
                 ctx.push_instruction("STR".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
             } else if $var_data.1.size == 1 {
                 ctx.push_instruction("STRB".into(), format!("{}, [FP, #-{}]", $reg, $var_data.0));
+            } else {
+                todo!()
             }
         };
     }
 
-    match ir_statement {
-        IRStatement::CreateVariable(var) => {
-            let ty_info = lower_type(&var.ty);
-
-            stack_alloc.create(var.name.clone(), ty_info);
-        }
-        IRStatement::DropVariable(name) => {
-            stack_alloc.drop(name);
-        }
-        IRStatement::SetVariable { name, value } => {
-            let output_data = stack_alloc.get(name);
-
-            match value {
+    macro_rules! load_op {
+        ($value:expr, $output_size:expr, $out_reg:expr) => {
+            match $value {
                 IRLoadOp::Unary(value) => {
                     match value {
                         IRLoadUnary::Num(value) => {
                             if value >= &0 && value <= &65535 {
                                 ctx.push_instruction(
                                     "MOV".into(),
-                                    format!("R0, #{}", value.to_string()),
+                                    format!("{}, #{}", &$out_reg, value.to_string()),
                                 );
                             } else {
                                 todo!();
@@ -273,9 +264,9 @@ fn lower_statement<'a>(
 
                             // The output type can't expect more
                             // data than the input can give it.
-                            assert!(output_data.1.size <= var_data.1.size);
+                            assert!($output_size.size <= var_data.1.size);
 
-                            load_var!(var_data, "R0");
+                            load_var!(var_data, &$out_reg);
                         }
                     }
                 }
@@ -291,7 +282,7 @@ fn lower_statement<'a>(
 
                             // The output type can't expect more
                             // data than the input can give it.
-                            assert!(output_data.1.size <= var1_data.1.size);
+                            assert!($output_size.size <= var1_data.1.size);
 
                             load_var!(var1_data, "R0");
                             load_var!(var2_data, "R1");
@@ -301,7 +292,7 @@ fn lower_statement<'a>(
 
                             // The output type can't expect more
                             // data than the input can give it.
-                            assert!(output_data.1.size <= var_data.1.size);
+                            assert!($output_size.size <= var_data.1.size);
 
                             if num >= &0 && num <= &65535 {
                                 ctx.push_instruction(
@@ -316,11 +307,37 @@ fn lower_statement<'a>(
                         }
                     }
 
-                    binary_op!(op, ("R0", "R1") => "R0");
+                    binary_op!(op, ("R0", "R1") => &$out_reg);
                 }
             }
+        }
+    }
+
+    match ir_statement {
+        IRStatement::CreateVariable(var) => {
+            let ty_info = lower_type(&var.ty);
+
+            stack_alloc.create(var.name.clone(), ty_info);
+        }
+        IRStatement::DropVariable(name) => {
+            stack_alloc.drop(name);
+        }
+        IRStatement::SetVariable { name, value } => {
+            let output_data = stack_alloc.get(name);
+
+            load_op!(value, output_data.1, "R0");
 
             store_var!(output_data, "R0");
+        }
+        IRStatement::Label { name } => {
+            ctx.push_label(name.to_string());
+        }
+        IRStatement::Goto { name } => ctx.push_instruction("B".into(), name.to_string()),
+        IRStatement::GotoNotEqual { name, condition } => {
+            load_op!(condition, lower_type(&IRType::Bool), "R0");
+
+            ctx.push_instruction("CMP".into(), "R0, #1".into());
+            ctx.push_instruction("BNE".into(), name.to_string());
         }
     }
 }

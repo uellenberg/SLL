@@ -47,11 +47,14 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
                     MIRStatement::Goto { .. } => {}
                     MIRStatement::Label { .. } => {}
 
-                    MIRStatement::SetVariable { value, .. } => {
-                        *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
+                    MIRStatement::SetVariable { value, .. }
+                    | MIRStatement::IfStatement {
+                        condition: value, ..
                     }
-                    MIRStatement::IfStatement { condition, .. } => {
-                        *condition = reduce_expr_simple(&ctx.program.constants, &condition.clone());
+                    | MIRStatement::GotoNotEqual {
+                        condition: value, ..
+                    } => {
+                        *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
                     }
                 }
 
@@ -253,7 +256,8 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                     MIRStatement::CreateVariable(..)
                     | MIRStatement::DropVariable(..)
                     | MIRStatement::Goto { .. }
-                    | MIRStatement::Label { .. } => {
+                    | MIRStatement::Label { .. }
+                    | MIRStatement::GotoNotEqual { .. } => {
                         block.push(statement);
                         return true;
                     }

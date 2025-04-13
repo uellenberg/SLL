@@ -164,6 +164,9 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                 }
                 MIRStatement::IfStatement {
                     condition, span, ..
+                }
+                | MIRStatement::GotoNotEqual {
+                    condition, span, ..
                 } => {
                     let Some(cond_ty) = check_expression(ctx, condition, Some(scope)) else {
                         return false;

@@ -56,6 +56,7 @@ macro_rules! explore_recurse {
             MIRStatement::Label { .. } => {}
             MIRStatement::CreateVariable(..) => {}
             MIRStatement::DropVariable(..) => {}
+            MIRStatement::GotoNotEqual { .. } => {}
 
             MIRStatement::IfStatement {
                 on_true, on_false, ..
@@ -106,6 +107,7 @@ fn explore_block_handle_scope<'a>(statement: &MIRStatement<'a>, scope: &mut Scop
         MIRStatement::IfStatement { .. } => {}
         MIRStatement::Goto { .. } => {}
         MIRStatement::Label { .. } => {}
+        MIRStatement::GotoNotEqual { .. } => {}
 
         MIRStatement::CreateVariable(var, ..) => {
             scope.variables.insert(var.name.clone(), var.clone());
