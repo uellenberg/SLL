@@ -11,5 +11,5 @@ function main() {
     g = 5 * v;
 
     let h: bool;
-    h = v == g;
+    h = v != g;
 }

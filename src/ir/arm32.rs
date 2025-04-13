@@ -202,6 +202,31 @@ fn lower_statement<'a>(
                     ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
                     ctx.push_instruction("MOVEQ".into(), format!("{}, #1", $store_reg));
                 }
+                IRBinaryOperation::NotEqual32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVNE".into(), format!("{}, #1", $store_reg));
+                }
+                IRBinaryOperation::Less32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVLT".into(), format!("{}, #1", $store_reg));
+                }
+                IRBinaryOperation::Greater32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVGT".into(), format!("{}, #1", $store_reg));
+                }
+                IRBinaryOperation::LessEq32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVLE".into(), format!("{}, #1", $store_reg));
+                }
+                IRBinaryOperation::GreaterEq32 => {
+                    ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
+                    ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));
+                    ctx.push_instruction("MOVGE".into(), format!("{}, #1", $store_reg));
+                }
                 _ => todo!(),
             }
         };
