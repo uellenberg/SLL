@@ -98,7 +98,9 @@ fn explore_block_internal<'a>(
 
     for statement in block {
         explore_recurse!(statement, (block) => {
-            explore_block_internal(block, for_each, on_scope_drop, &scope);
+            if !explore_block_internal(block, for_each, on_scope_drop, &scope) {
+                return false;
+            }
         });
 
         if !for_each(statement, &scope) {
@@ -179,7 +181,9 @@ fn explore_block_mut_internal<'a>(
 
     for statement in block {
         explore_recurse!(statement, (block) => {
-            explore_block_mut_internal(block, for_each, on_scope_drop, &scope);
+            if !explore_block_mut_internal(block, for_each, on_scope_drop, &scope) {
+                return false;
+            }
         });
 
         if !for_each(statement, &scope) {
@@ -236,7 +240,9 @@ fn rewrite_block_internal<'a>(
 
     for mut statement in old_block {
         explore_recurse!(&mut statement, (block) => {
-            rewrite_block_internal(block, for_each, on_scope_end, &scope);
+            if !rewrite_block_internal(block, for_each, on_scope_end, &scope) {
+                return false;
+            }
         });
 
         if !for_each(statement.clone(), &scope, block) {

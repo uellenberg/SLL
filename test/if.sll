@@ -8,6 +8,6 @@ function main() {
     } else if h == false {
         g = 20;
     } else {
-        g = 30;
+        g = true;
     }
 }
