@@ -150,54 +150,59 @@ fn reduce_expr<'a>(
     expr: &MIRExpression<'a>,
     get_const: &mut impl FnMut(Cow<'a, str>) -> Option<MIRExpression<'a>>,
 ) -> MIRExpression<'a> {
+    macro_rules! simple_binary {
+        ($left:expr, $right:expr, $($red_i:path)|+, $red_o:path, $op:tt, $ret:path) => {{
+            use MIRExpressionInner::*;
+
+            let left = reduce_expr($left, get_const);
+            let right = reduce_expr($right, get_const);
+
+            $(if let $red_i(left, ..) = left.inner {
+                if let $red_i(right, ..) = right.inner {
+                    return $red_o(left $op right);
+                }
+            })+
+
+            $ret(Box::new(left), Box::new(right))
+        }};
+    }
+
     let new_expr = (|| match &expr.inner {
         MIRExpressionInner::Add(left, right) => {
-            let left = reduce_expr(left, get_const);
-            let right = reduce_expr(right, get_const);
-
-            if let MIRExpressionInner::Number(left, ..) = left.inner {
-                if let MIRExpressionInner::Number(right, ..) = right.inner {
-                    return MIRExpressionInner::Number(left + right);
-                }
-            }
-
-            MIRExpressionInner::Add(Box::new(left), Box::new(right))
+            simple_binary!(left, right, Number, Number, +, Add)
         }
         MIRExpressionInner::Sub(left, right) => {
-            let left = reduce_expr(left, get_const);
-            let right = reduce_expr(right, get_const);
-
-            if let MIRExpressionInner::Number(left, ..) = left.inner {
-                if let MIRExpressionInner::Number(right, ..) = right.inner {
-                    return MIRExpressionInner::Number(left - right);
-                }
-            }
-
-            MIRExpressionInner::Sub(Box::new(left), Box::new(right))
+            simple_binary!(left, right, Number, Number, -, Sub)
         }
         MIRExpressionInner::Mul(left, right) => {
-            let left = reduce_expr(left, get_const);
-            let right = reduce_expr(right, get_const);
-
-            if let MIRExpressionInner::Number(left, ..) = left.inner {
-                if let MIRExpressionInner::Number(right, ..) = right.inner {
-                    return MIRExpressionInner::Number(left * right);
-                }
-            }
-
-            MIRExpressionInner::Mul(Box::new(left), Box::new(right))
+            simple_binary!(left, right, Number, Number, *, Mul)
         }
         MIRExpressionInner::Div(left, right) => {
-            let left = reduce_expr(left, get_const);
-            let right = reduce_expr(right, get_const);
-
-            if let MIRExpressionInner::Number(left, ..) = left.inner {
-                if let MIRExpressionInner::Number(right, ..) = right.inner {
-                    return MIRExpressionInner::Number(left / right);
-                }
-            }
-
-            MIRExpressionInner::Div(Box::new(left), Box::new(right))
+            simple_binary!(left, right, Number, Number, /, Div)
+        }
+        MIRExpressionInner::Equal(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, ==, Equal)
+        }
+        MIRExpressionInner::NotEqual(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, !=, NotEqual)
+        }
+        MIRExpressionInner::Greater(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, >, Greater)
+        }
+        MIRExpressionInner::Less(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, <, Less)
+        }
+        MIRExpressionInner::GreaterEq(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, >=, GreaterEq)
+        }
+        MIRExpressionInner::LessEq(left, right) => {
+            simple_binary!(left, right, Number | Bool, Bool, <=, LessEq)
+        }
+        MIRExpressionInner::BoolAnd(left, right) => {
+            simple_binary!(left, right, Bool, Bool, &&, BoolAnd)
+        }
+        MIRExpressionInner::BoolOr(left, right) => {
+            simple_binary!(left, right, Bool, Bool, ||, BoolOr)
         }
         MIRExpressionInner::Number(val) => MIRExpressionInner::Number(*val),
         MIRExpressionInner::Bool(val) => MIRExpressionInner::Bool(*val),
@@ -284,42 +289,52 @@ fn split_expr_to_locals<'a>(
         };
     }
 
+    macro_rules! simple_binary {
+        ($left:expr, $right:expr, $name:path) => {{
+            let left = recurse!($left);
+            let right = recurse!($right);
+
+            ($name(Box::new(left), Box::new(right)), true)
+        }};
+    }
+
     let (new_expr, needs_var) = match &expr.inner {
         MIRExpressionInner::Add(left, right) => {
-            let left = recurse!(left);
-            let right = recurse!(right);
-
-            (
-                MIRExpressionInner::Add(Box::new(left), Box::new(right)),
-                true,
-            )
+            simple_binary!(left, right, MIRExpressionInner::Add)
         }
         MIRExpressionInner::Sub(left, right) => {
-            let left = recurse!(left);
-            let right = recurse!(right);
-
-            (
-                MIRExpressionInner::Sub(Box::new(left), Box::new(right)),
-                true,
-            )
+            simple_binary!(left, right, MIRExpressionInner::Sub)
         }
         MIRExpressionInner::Mul(left, right) => {
-            let left = recurse!(left);
-            let right = recurse!(right);
-
-            (
-                MIRExpressionInner::Mul(Box::new(left), Box::new(right)),
-                true,
-            )
+            simple_binary!(left, right, MIRExpressionInner::Mul)
         }
         MIRExpressionInner::Div(left, right) => {
-            let left = recurse!(left);
-            let right = recurse!(right);
-
-            (
-                MIRExpressionInner::Div(Box::new(left), Box::new(right)),
-                true,
-            )
+            simple_binary!(left, right, MIRExpressionInner::Div)
+        }
+        MIRExpressionInner::Equal(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::Equal)
+        }
+        MIRExpressionInner::NotEqual(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::NotEqual)
+        }
+        MIRExpressionInner::Greater(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::Greater)
+        }
+        MIRExpressionInner::Less(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::Less)
+        }
+        MIRExpressionInner::GreaterEq(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::GreaterEq)
+        }
+        MIRExpressionInner::LessEq(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::LessEq)
+        }
+        // TODO: Add a compile pass before this to translate these into ifs for short circuiting.
+        MIRExpressionInner::BoolAnd(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::BoolAnd)
+        }
+        MIRExpressionInner::BoolOr(left, right) => {
+            simple_binary!(left, right, MIRExpressionInner::BoolOr)
         }
         // Primitive expressions don't need variables.
         MIRExpressionInner::Variable(val) => (MIRExpressionInner::Variable(val.clone()), false),

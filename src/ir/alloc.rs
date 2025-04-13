@@ -5,6 +5,7 @@ use std::iter;
 
 /// Data representing a type
 /// at the assembly level.
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct TypeData {
     /// The type's size (in bytes).
     pub size: u32,
@@ -42,7 +43,7 @@ pub struct StackAllocator<'a> {
     /// A map of live variable names
     /// to their stack position and
     /// size.
-    variables: HashMap<Cow<'a, str>, (u32, u32)>,
+    variables: HashMap<Cow<'a, str>, (u32, TypeData)>,
 }
 
 impl<'a> StackAllocator<'a> {
@@ -61,15 +62,15 @@ impl<'a> StackAllocator<'a> {
 
     /// Allocates a new variable, returning its
     /// stack offset.
-    pub fn create(&mut self, name: Cow<'a, str>, size: u32, align: u32) -> u32 {
-        assert!(align.is_power_of_two());
+    pub fn create(&mut self, name: Cow<'a, str>, type_data: TypeData) -> u32 {
+        assert!(type_data.align.is_power_of_two());
 
         // There's no way for us to statically get a higher
         // alignment than what's given by the stack pointer.
-        assert!(align <= self.alignment);
+        assert!(type_data.align <= self.alignment);
 
         // Search for an existing space.
-        'search: for start in (0..self.blocks.len()).step_by(align as usize) {
+        'search: for start in (0..self.blocks.len()).step_by(type_data.align as usize) {
             // Optionally resize the vec if it doesn't
             // have enough space for us to exist at this
             // position.
@@ -77,12 +78,12 @@ impl<'a> StackAllocator<'a> {
             // and max index for the vec is
             // blocks.len() - 1, so we can drop
             // the -1 in the comparison.
-            if self.blocks.len() < start + size as usize {
-                let needed = (start + size as usize) - self.blocks.len();
+            if self.blocks.len() < start + type_data.size as usize {
+                let needed = (start + type_data.size as usize) - self.blocks.len();
                 self.blocks.extend(iter::repeat_n(false, needed));
             }
 
-            for offset in (0..size) {
+            for offset in (0..type_data.size) {
                 if self.blocks[start + offset as usize] {
                     // Occupied.
                     continue 'search;
@@ -90,22 +91,23 @@ impl<'a> StackAllocator<'a> {
             }
 
             // We found a valid spot.
-            self.write_var(start as u32, name, size);
+            self.write_var(start as u32, name, type_data);
             return start as u32;
         }
 
         // No space was found.
         // We need to add it.
-        let extra_space =
-            (align_to(self.blocks.len(), align as usize) - self.blocks.len()) + size as usize;
+        let extra_space = (align_to(self.blocks.len(), type_data.align as usize)
+            - self.blocks.len())
+            + type_data.size as usize;
         self.blocks.extend(iter::repeat_n(false, extra_space));
 
         // blocks.len() represents the index past the
         // last one, so subtracting size gives us size
         // valid items (e.g., len() - 2 gives 2 valid items).
-        let pos = self.blocks.len() as u32 - size;
+        let pos = self.blocks.len() as u32 - type_data.size;
 
-        self.write_var(pos, name, size);
+        self.write_var(pos, name, type_data);
 
         pos
     }
@@ -118,7 +120,7 @@ impl<'a> StackAllocator<'a> {
             .expect("Tried to drop non-existent variable!");
 
         // start..(start + size)
-        for i in (var.0)..(var.0 + var.1) {
+        for i in (var.0)..(var.0 + var.1.size) {
             self.blocks[i as usize] = false;
         }
     }
@@ -130,17 +132,17 @@ impl<'a> StackAllocator<'a> {
     }
 
     /// Gets the stack position of a certain variable.
-    pub fn get(&self, name: &Cow<'a, str>) -> u32 {
-        self.variables[name].0
+    pub fn get(&self, name: &Cow<'a, str>) -> (u32, TypeData) {
+        self.variables[name]
     }
 
     /// Creates a variable at the specified position.
-    fn write_var(&mut self, pos: u32, name: Cow<'a, str>, size: u32) {
-        for i in pos..(pos + size) {
+    fn write_var(&mut self, pos: u32, name: Cow<'a, str>, type_data: TypeData) {
+        for i in pos..(pos + type_data.size) {
             self.blocks[i as usize] = true;
         }
 
-        self.variables.insert(name, (pos, size));
+        self.variables.insert(name, (pos, type_data));
     }
 }
 

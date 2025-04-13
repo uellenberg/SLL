@@ -183,51 +183,69 @@ fn check_expression<'a>(
     expr: &mut MIRExpression<'a>,
     scope: Option<&Scope<'a>>,
 ) -> Option<MIRType<'a>> {
-    let ty = (|| {
+    macro_rules! simple_binary {
+        ($left:expr, $right:expr, $name:literal, internal) => {{
+            let t_left = check_expression(ctx, $left, scope)?;
+            let t_right = check_expression(ctx, $right, scope)?;
+
+            if t_left.ty != t_right.ty {
+                eprintln!("{} failed: left type != right: {expr:?}", $name);
+                return None;
+            }
+
+            Some(t_left)
+        }};
+        ($left:expr, $right:expr, $name:literal) => {
+            simple_binary!($left, $right, $name, internal)
+        };
+        ($left:expr, $right:expr, $name:literal, $ty:expr) => {{
+            simple_binary!($left, $right, $name, internal);
+
+            Some(MIRType {
+                ty: $ty,
+                // Span will get set below.
+                span: None,
+            })
+        }};
+    }
+
+    let mut ty = (|| {
         match &mut expr.inner {
             MIRExpressionInner::Add(left, right, ..) => {
-                let t_left = check_expression(ctx, left, scope)?;
-                let t_right = check_expression(ctx, right, scope)?;
-
-                if t_left.ty != t_right.ty {
-                    eprintln!("Addition failed: left type != right: {expr:?}");
-                    return None;
-                }
-
-                Some(t_left)
+                simple_binary!(left, right, "Addition")
             }
             MIRExpressionInner::Sub(left, right, ..) => {
-                let t_left = check_expression(ctx, left, scope)?;
-                let t_right = check_expression(ctx, right, scope)?;
-
-                if t_left.ty != t_right.ty {
-                    eprintln!("Subtraction failed: left type != right: {expr:?}");
-                    return None;
-                }
-
-                Some(t_left)
+                simple_binary!(left, right, "Subtraction")
             }
             MIRExpressionInner::Mul(left, right, ..) => {
-                let t_left = check_expression(ctx, left, scope)?;
-                let t_right = check_expression(ctx, right, scope)?;
-
-                if t_left.ty != t_right.ty {
-                    eprintln!("Multiplication failed: left type != right: {expr:?}");
-                    return None;
-                }
-
-                Some(t_left)
+                simple_binary!(left, right, "Multiplication")
             }
             MIRExpressionInner::Div(left, right, ..) => {
-                let t_left = check_expression(ctx, left, scope)?;
-                let t_right = check_expression(ctx, right, scope)?;
-
-                if t_left.ty != t_right.ty {
-                    eprintln!("Division failed: left type != right: {expr:?}");
-                    return None;
-                }
-
-                Some(t_left)
+                simple_binary!(left, right, "Division")
+            }
+            MIRExpressionInner::Equal(left, right, ..) => {
+                simple_binary!(left, right, "Equals", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::NotEqual(left, right, ..) => {
+                simple_binary!(left, right, "Not equals", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::Less(left, right, ..) => {
+                simple_binary!(left, right, "Less than", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::Greater(left, right, ..) => {
+                simple_binary!(left, right, "Greater than", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::LessEq(left, right, ..) => {
+                simple_binary!(left, right, "Less than or equals", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::GreaterEq(left, right, ..) => {
+                simple_binary!(left, right, "Greater than or equals", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::BoolAnd(left, right, ..) => {
+                simple_binary!(left, right, "Binary and", MIRTypeInner::Bool)
+            }
+            MIRExpressionInner::BoolOr(left, right, ..) => {
+                simple_binary!(left, right, "Binary or", MIRTypeInner::Bool)
             }
             MIRExpressionInner::Variable(name, ..) => {
                 if let Some(scope) = scope {
@@ -272,14 +290,15 @@ fn check_expression<'a>(
         }
     })()?;
 
+    // Ensure the type covers the
+    // whole span.
+    ty.span = Some(expr.span.clone());
+
     // Save the type for later
     // phases.
     expr.ty = Some(ty.clone());
 
     // Ensure that we return a type
     // whose span covers the entire expression.
-    Some(MIRType {
-        ty: ty.ty,
-        span: Some(expr.span.clone()),
-    })
+    expr.ty.clone()
 }

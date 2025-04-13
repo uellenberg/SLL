@@ -224,6 +224,30 @@ pub enum MIRExpressionInner<'a> {
     /// Division.
     Div(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
 
+    /// Equals.
+    Equal(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Not equal.
+    NotEqual(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Less than.
+    Less(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Greater than.
+    Greater(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Less than or equal.
+    LessEq(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Greater than or equal.
+    GreaterEq(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Logical (boolean) and.
+    BoolAnd(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
+    /// Logical (boolean) or.
+    BoolOr(Box<MIRExpression<'a>>, Box<MIRExpression<'a>>),
+
     /// Number literal.
     Number(i64),
 

@@ -115,22 +115,73 @@ pub enum IRStatement<'a> {
     },
 
     /// Sets a variable to another variable.
-    SetVariableAddNumVariable {
+    SetVariableOpNumVariable {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
         /// Is the value to set the variable to.
         value: (i64, Cow<'a, str>),
+
+        /// Is the operation to perform.
+        op: IRBinaryOperation,
     },
 
     /// Sets a variable to another variable.
-    SetVariableAddVariableVariable {
+    SetVariableOpVariableVariable {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
         /// Is the value to set the variable to.
         value: (Cow<'a, str>, Cow<'a, str>),
+
+        /// Is the operation to perform.
+        op: IRBinaryOperation,
     },
+}
+
+/// An operation that can be performed
+/// on two inputs.
+/// Any operation must work for a lower
+/// bit size.
+/// For example, Add32 must work for
+/// 8-bit numbers.
+#[derive(Debug)]
+pub enum IRBinaryOperation {
+    /// Add two 32-bit ints.
+    Add32,
+
+    /// Subtract two 32-bit ints.
+    Sub32,
+
+    /// Multiply two 32-bit ints.
+    Mul32,
+
+    /// Divide two 32-bit ints.
+    Div32,
+
+    /// Check if two 32-bit ints are equal.
+    Equal32,
+
+    /// Check if two 32-bit ints are not equal.
+    NotEqual32,
+
+    /// Check if the left 32-bit int is greater than the right.
+    Greater32,
+
+    /// Check if the left 32-bit int is less than the right.
+    Less32,
+
+    /// Check if the left 32-bit int is greater than or equal to the right.
+    GreaterEq32,
+
+    /// Check if the left 32-bit int is less than or equal to the right.
+    LessEq32,
+
+    /// Bitwise and on two 32-bit integers.
+    And32,
+
+    /// Bitwise or on two 32-bit integers.
+    Or32,
 }
 
 /// The type of data a variable represents.

@@ -1,5 +1,7 @@
 use crate::ir::alloc::{StackAllocator, TypeData};
-use crate::ir::{IRConstant, IRFunction, IRProgram, IRStatement, IRStatic, IRType};
+use crate::ir::{
+    IRBinaryOperation, IRConstant, IRFunction, IRProgram, IRStatement, IRStatic, IRType,
+};
 use std::fmt::Write as _;
 
 #[derive(Default)]
@@ -117,7 +119,7 @@ fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
             IRStatement::CreateVariable(var) => {
                 let ty_info = lower_type(&var.ty);
 
-                stack_alloc.create(var.name.clone(), ty_info.size, ty_info.align);
+                stack_alloc.create(var.name.clone(), ty_info);
             }
             IRStatement::DropVariable(name) => {
                 stack_alloc.drop(name);
@@ -160,70 +162,136 @@ fn lower_statement<'a>(
         IRStatement::CreateVariable(var) => {
             let ty_info = lower_type(&var.ty);
 
-            stack_alloc.create(var.name.clone(), ty_info.size, ty_info.align);
+            stack_alloc.create(var.name.clone(), ty_info);
         }
         IRStatement::DropVariable(name) => {
             stack_alloc.drop(name);
         }
         IRStatement::SetVariableNum { name, value } => {
+            let output_data = stack_alloc.get(name);
+
             if value >= &0 && value <= &65535 {
                 ctx.push_instruction("MOV".into(), format!("R0, #{}", value.to_string()));
             } else {
                 todo!();
             }
 
-            ctx.push_instruction(
-                "STR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(name)),
-            );
-        }
-        IRStatement::SetVariableAddVariableVariable {
-            name,
-            value: (var1, var2),
-        } => {
-            ctx.push_instruction(
-                "LDR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(var1)),
-            );
-            ctx.push_instruction(
-                "LDR".into(),
-                format!("R1, [FP, #-{}]", stack_alloc.get(var2)),
-            );
-            ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
-            ctx.push_instruction(
-                "STR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(name)),
-            );
+            if output_data.1.size == 4 {
+                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
+            } else if output_data.1.size == 1 {
+                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
+            }
         }
         IRStatement::SetVariableVariable { name, value } => {
-            ctx.push_instruction(
-                "LDR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(value)),
-            );
-            ctx.push_instruction(
-                "STR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(name)),
-            );
+            let output_data = stack_alloc.get(name);
+            let var_data = stack_alloc.get(value);
+
+            // The output type can't expect more
+            // data than the input can give it.
+            assert!(output_data.1.size <= var_data.1.size);
+
+            if var_data.1.size == 4 {
+                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var_data.0));
+            } else if var_data.1.size == 1 {
+                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var_data.0));
+            } else {
+                todo!()
+            }
+
+            if output_data.1.size == 4 {
+                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
+            } else if output_data.1.size == 1 {
+                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
+            }
         }
-        IRStatement::SetVariableAddNumVariable {
+        IRStatement::SetVariableOpVariableVariable {
+            name,
+            value: (var1, var2),
+            op,
+        } => {
+            let output_data = stack_alloc.get(name);
+            let var1_data = stack_alloc.get(var1);
+            let var2_data = stack_alloc.get(var2);
+
+            // We can't perform binary operations
+            // on different types.
+            assert_eq!(var1_data.1, var2_data.1);
+
+            // The output type can't expect more
+            // data than the input can give it.
+            assert!(output_data.1.size <= var1_data.1.size);
+
+            if var1_data.1.size == 4 {
+                ctx.push_instruction("LDR".into(), format!("R0, [FP, #-{}]", var1_data.0));
+                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var2_data.0));
+            } else if var1_data.1.size == 1 {
+                ctx.push_instruction("LDRB".into(), format!("R0, [FP, #-{}]", var1_data.0));
+                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var2_data.0));
+            } else {
+                todo!()
+            }
+
+            match op {
+                IRBinaryOperation::Add32 => {
+                    ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
+                }
+                IRBinaryOperation::Equal32 => {
+                    ctx.push_instruction("CMP".into(), "R0, R1".into());
+                    ctx.push_instruction("MOV".into(), "R0, #0".into());
+                    ctx.push_instruction("MOVEQ".into(), "R0, #1".into());
+                }
+                _ => todo!(),
+            }
+
+            if output_data.1.size == 4 {
+                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
+            } else if output_data.1.size == 1 {
+                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
+            }
+        }
+        IRStatement::SetVariableOpNumVariable {
             name,
             value: (num, var),
+            op,
         } => {
+            let output_data = stack_alloc.get(name);
+            let var_data = stack_alloc.get(var);
+
+            // The output type can't expect more
+            // data than the input can give it.
+            assert!(output_data.1.size <= var_data.1.size);
+
             if num >= &0 && num <= &65535 {
                 ctx.push_instruction("MOV".into(), format!("R0, #{}", num.to_string()));
             } else {
                 todo!();
             }
 
-            ctx.push_instruction(
-                "LDR".into(),
-                format!("R1, [FP, #-{}]", stack_alloc.get(var)),
-            );
-            ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
-            ctx.push_instruction(
-                "STR".into(),
-                format!("R0, [FP, #-{}]", stack_alloc.get(name)),
-            );
+            if var_data.1.size == 4 {
+                ctx.push_instruction("LDR".into(), format!("R1, [FP, #-{}]", var_data.0));
+            } else if var_data.1.size == 1 {
+                ctx.push_instruction("LDRB".into(), format!("R1, [FP, #-{}]", var_data.0));
+            } else {
+                todo!()
+            }
+
+            match op {
+                IRBinaryOperation::Add32 => {
+                    ctx.push_instruction("ADD".into(), "R0, R0, R1".into());
+                }
+                IRBinaryOperation::Equal32 => {
+                    ctx.push_instruction("CMP".into(), "R0, R1".into());
+                    ctx.push_instruction("MOV".into(), "R0, #0".into());
+                    ctx.push_instruction("MOVEQ".into(), "R0, #1".into());
+                }
+                _ => todo!(),
+            }
+
+            if output_data.1.size == 4 {
+                ctx.push_instruction("STR".into(), format!("R0, [FP, #-{}]", output_data.0));
+            } else if output_data.1.size == 1 {
+                ctx.push_instruction("STRB".into(), format!("R0, [FP, #-{}]", output_data.0));
+            }
         }
     }
 }

@@ -262,7 +262,65 @@ fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
 fn parse_expression<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression<'a> {
     assert_eq!(value.as_rule(), Rule::expression);
 
-    parse_addition(location, value.into_inner().next().unwrap())
+    parse_logical(location, value.into_inner().next().unwrap())
+}
+
+fn parse_logical<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression<'a> {
+    assert_eq!(value.as_rule(), Rule::logical);
+
+    let span = to_span(location, value.as_span());
+    let mut data = value.into_inner();
+
+    let comp = parse_comparison(location, data.next().unwrap());
+
+    let Some(op) = data.next() else {
+        return comp;
+    };
+
+    let log = parse_logical(location, data.next().unwrap());
+
+    let expr = match op.as_str() {
+        "&&" => MIRExpressionInner::BoolAnd(Box::new(comp), Box::new(log)),
+        "||" => MIRExpressionInner::BoolOr(Box::new(comp), Box::new(log)),
+        _ => unreachable!(),
+    };
+
+    MIRExpression {
+        inner: expr,
+        ty: None,
+        span,
+    }
+}
+
+fn parse_comparison<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression<'a> {
+    assert_eq!(value.as_rule(), Rule::comparison);
+
+    let span = to_span(location, value.as_span());
+    let mut data = value.into_inner();
+
+    let add = parse_addition(location, data.next().unwrap());
+
+    let Some(op) = data.next() else {
+        return add;
+    };
+
+    let comp = parse_comparison(location, data.next().unwrap());
+
+    let expr = match op.as_str() {
+        "==" => MIRExpressionInner::Equal(Box::new(add), Box::new(comp)),
+        "!=" => MIRExpressionInner::NotEqual(Box::new(add), Box::new(comp)),
+        ">" => MIRExpressionInner::Greater(Box::new(add), Box::new(comp)),
+        "<" => MIRExpressionInner::Less(Box::new(add), Box::new(comp)),
+        ">=" => MIRExpressionInner::GreaterEq(Box::new(add), Box::new(comp)),
+        "<=" => MIRExpressionInner::LessEq(Box::new(add), Box::new(comp)),
+        _ => unreachable!(),
+    };
+
+    MIRExpression {
+        inner: expr,
+        ty: None,
+        span,
+    }
 }
 
 fn parse_addition<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression<'a> {
