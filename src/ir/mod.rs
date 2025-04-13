@@ -96,47 +96,50 @@ pub enum IRStatement<'a> {
     /// invalidates it.
     DropVariable(Cow<'a, str>),
 
-    /// Sets a variable to a certain constant number.
-    SetVariableNum {
+    /// Sets a variable to another variable
+    /// or literal.
+    SetVariableUnary {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
         /// Is the value to set the variable to.
-        value: i64,
+        value: IRLoadUnary<'a>,
     },
 
-    /// Sets a variable to another variable.
-    SetVariableVariable {
+    /// Sets a variable to the result
+    /// of a binary operation.
+    SetVariableBinaryOp {
         /// Is the variable's name.
         name: Cow<'a, str>,
 
         /// Is the value to set the variable to.
-        value: Cow<'a, str>,
-    },
-
-    /// Sets a variable to another variable.
-    SetVariableOpNumVariable {
-        /// Is the variable's name.
-        name: Cow<'a, str>,
-
-        /// Is the value to set the variable to.
-        value: (i64, Cow<'a, str>),
+        value: IRLoadBinary<'a>,
 
         /// Is the operation to perform.
         op: IRBinaryOperation,
     },
+}
 
-    /// Sets a variable to another variable.
-    SetVariableOpVariableVariable {
-        /// Is the variable's name.
-        name: Cow<'a, str>,
+/// A single piece of data that's
+/// loaded in for an operation.
+#[derive(Debug)]
+pub enum IRLoadUnary<'a> {
+    /// A variable.
+    Variable(Cow<'a, str>),
 
-        /// Is the value to set the variable to.
-        value: (Cow<'a, str>, Cow<'a, str>),
+    /// A number literal.
+    Num(i64),
+}
 
-        /// Is the operation to perform.
-        op: IRBinaryOperation,
-    },
+/// A single piece of data that's
+/// loaded in for an operation.
+#[derive(Debug)]
+pub enum IRLoadBinary<'a> {
+    /// Two variables.
+    VariableVariable(Cow<'a, str>, Cow<'a, str>),
+
+    /// A number literal and a variable.
+    NumVariable(i64, Cow<'a, str>),
 }
 
 /// An operation that can be performed

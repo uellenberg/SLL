@@ -1,5 +1,6 @@
 use crate::ir::{
-    IRBinaryOperation, IRConstant, IRFunction, IRProgram, IRStatement, IRStatic, IRType, IRVariable,
+    IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadUnary, IRProgram, IRStatement,
+    IRStatic, IRType, IRVariable,
 };
 use crate::mir::{
     MIRConstant, MIRExpression, MIRExpressionInner, MIRFunction, MIRProgram, MIRStatement,
@@ -97,9 +98,9 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
 
     macro_rules! binary_lv_out {
         ($lit_val:expr, $var_name:ident, $op_ty:path) => {
-            IRStatement::SetVariableOpNumVariable {
+            IRStatement::SetVariableBinaryOp {
                 name: name.clone(),
-                value: ($lit_val, $var_name.clone()),
+                value: IRLoadBinary::NumVariable($lit_val, $var_name.clone()),
                 op: $op_ty,
             }
         };
@@ -126,9 +127,9 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
 
     macro_rules! binary_vv_out {
         ($var1_name:ident, $var2_name:ident, $op_ty:path) => {
-            IRStatement::SetVariableOpVariableVariable {
+            IRStatement::SetVariableBinaryOp {
                 name: name.clone(),
-                value: ($var1_name.clone(), $var2_name.clone()),
+                value: IRLoadBinary::VariableVariable($var1_name.clone(), $var2_name.clone()),
                 op: $op_ty,
             }
         };
@@ -138,25 +139,25 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
         MIRExpression {
             inner: MIRExpressionInner::Number(num, ..),
             ..
-        } => IRStatement::SetVariableNum {
+        } => IRStatement::SetVariableUnary {
             name: name.clone(),
-            value: *num,
+            value: IRLoadUnary::Num(*num),
         },
 
         MIRExpression {
             inner: MIRExpressionInner::Bool(val, ..),
             ..
-        } => IRStatement::SetVariableNum {
+        } => IRStatement::SetVariableUnary {
             name: name.clone(),
-            value: if *val { 1 } else { 0 },
+            value: IRLoadUnary::Num(if *val { 1 } else { 0 }),
         },
 
         MIRExpression {
             inner: MIRExpressionInner::Variable(var, ..),
             ..
-        } => IRStatement::SetVariableVariable {
+        } => IRStatement::SetVariableUnary {
             name: name.clone(),
-            value: var.clone(),
+            value: IRLoadUnary::Variable(var.clone()),
         },
 
         // No need to handle num num as const eval

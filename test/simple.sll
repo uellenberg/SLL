@@ -12,8 +12,4 @@ function main() {
 
     let h: bool;
     h = v != g;
-
-    if h {
-        g = 10 + 5;
-    }
 }
