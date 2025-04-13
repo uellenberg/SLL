@@ -174,6 +174,55 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
     true
 }
 
+/// Prints an error for when an expression
+/// requires left and right operands to
+/// be equal, but they aren't.
+fn print_left_right_unequal(
+    ctx: &MIRContext<'_>,
+    op_name: &str,
+    left_ty: MIRType<'_>,
+    right_ty: MIRType<'_>,
+    error_expr_span: Span<'_>,
+) {
+    let mut colors = ColorGenerator::new();
+
+    let left = colors.next();
+    let right = colors.next();
+
+    let left_ty_str: Cow<str> = left_ty.ty.clone().into();
+    let left_ty_str = left_ty_str.fg(left);
+
+    let right_ty_str: Cow<str> = right_ty.ty.clone().into();
+    let right_ty_str = right_ty_str.fg(right);
+
+    let mut report = Report::build(ReportKind::Error, error_expr_span.clone())
+        .with_message("Left and right operands have different types".to_string());
+
+    if let Some(left_ty_span) = &left_ty.span {
+        report = report.with_label(
+            Label::new(left_ty_span.clone())
+                .with_message(format!("This expression has type {left_ty_str}"))
+                .with_color(left),
+        )
+    }
+
+    if let Some(right_ty_span) = &right_ty.span {
+        report = report.with_label(
+            Label::new(right_ty_span.clone())
+                .with_message(format!("This expression has type {right_ty_str}"))
+                .with_color(right),
+        )
+    }
+
+    report
+        .with_note(format!(
+            "{op_name} requires the left and right operands to have the same type."
+        ))
+        .finish()
+        .eprint(ctx.file_cache.clone())
+        .unwrap();
+}
+
 /// Checks whether the expression is valid,
 /// and modifies its type information to match.
 /// If it isn't, errors are reported.
@@ -189,7 +238,7 @@ fn check_expression<'a>(
             let t_right = check_expression(ctx, $right, scope)?;
 
             if t_left.ty != t_right.ty {
-                eprintln!("{} failed: left type != right: {expr:?}", $name);
+                print_left_right_unequal(ctx, $name, t_left, t_right, expr.span.clone());
                 return None;
             }
 
