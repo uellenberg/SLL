@@ -173,6 +173,39 @@ fn lower_set_variable<'a>(name: Cow<'a, str>, value: &MIRExpression<'a>) -> IRSt
         }
 
         binary_lv_in!(
+            MIRExpressionInner::Sub,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_lv_out!(*num, var, IRBinaryOperation::Sub32),
+
+        binary_vv_in!(MIRExpressionInner::Sub, var1, var2) => {
+            binary_vv_out!(var1, var2, IRBinaryOperation::Sub32)
+        }
+
+        binary_lv_in!(
+            MIRExpressionInner::Mul,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_lv_out!(*num, var, IRBinaryOperation::Mul32),
+
+        binary_vv_in!(MIRExpressionInner::Mul, var1, var2) => {
+            binary_vv_out!(var1, var2, IRBinaryOperation::Mul32)
+        }
+
+        binary_lv_in!(
+            MIRExpressionInner::Div,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_lv_out!(*num, var, IRBinaryOperation::Div32),
+
+        binary_vv_in!(MIRExpressionInner::Div, var1, var2) => {
+            binary_vv_out!(var1, var2, IRBinaryOperation::Div32)
+        }
+
+        binary_lv_in!(
             MIRExpressionInner::Equal,
             MIRExpressionInner::Number,
             num,

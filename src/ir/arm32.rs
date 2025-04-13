@@ -179,6 +179,24 @@ fn lower_statement<'a>(
                         format!("{}, {}, {}", $store_reg, $left_reg, $right_reg),
                     );
                 }
+                IRBinaryOperation::Sub32 => {
+                    ctx.push_instruction(
+                        "SUB".into(),
+                        format!("{}, {}, {}", $store_reg, $left_reg, $right_reg),
+                    );
+                }
+                IRBinaryOperation::Mul32 => {
+                    ctx.push_instruction(
+                        "MUL".into(),
+                        format!("{}, {}, {}", $store_reg, $left_reg, $right_reg),
+                    );
+                }
+                IRBinaryOperation::Div32 => {
+                    ctx.push_instruction(
+                        "DIV".into(),
+                        format!("{}, {}, {}", $store_reg, $left_reg, $right_reg),
+                    );
+                }
                 IRBinaryOperation::Equal32 => {
                     ctx.push_instruction("CMP".into(), format!("{}, {}", &$left_reg, &$right_reg));
                     ctx.push_instruction("MOV".into(), format!("{}, #0", &$store_reg));

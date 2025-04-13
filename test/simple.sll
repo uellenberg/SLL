@@ -8,7 +8,7 @@ function main() {
     v = 5;
 
     let g: u32;
-    g = 5 + v;
+    g = 5 * v;
 
     let h: bool;
     h = v == g;
