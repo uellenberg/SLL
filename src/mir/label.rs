@@ -1,4 +1,4 @@
-use crate::mir::scope::rewrite_block;
+use crate::mir::scope::StatementExplorer;
 use crate::mir::{MIRContext, MIRStatement};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -52,7 +52,7 @@ pub fn rename_labels(ctx: &mut MIRContext) {
     for function in ctx.program.functions.values_mut() {
         let mut label_mapper = LabelMapper::new(function.name.clone());
 
-        if !rewrite_block(
+        if !<StatementExplorer>::rewrite_block(
             &mut function.body,
             &mut move |statement, scope, block| {
                 let statement = match statement {
@@ -81,6 +81,7 @@ pub fn rename_labels(ctx: &mut MIRContext) {
 
                 true
             },
+            &mut |_, _| true,
             &mut |_, _| true,
         ) {
             panic!("rename_labels returned false!");

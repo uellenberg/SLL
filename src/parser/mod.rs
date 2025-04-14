@@ -248,6 +248,22 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
             Rule::ifStatement => {
                 body.push(parse_if_statement(location, pair));
             }
+            Rule::continueStatement => {
+                body.push(MIRStatement::ContinueStatement { span });
+            }
+            Rule::breakStatement => {
+                body.push(MIRStatement::BreakStatement { span });
+            }
+            Rule::loopStatement => {
+                let mut data = pair.into_inner();
+
+                let loop_body = parse_function_body(location, data.next().unwrap());
+
+                body.push(MIRStatement::LoopStatement {
+                    body: loop_body,
+                    span,
+                });
+            }
             _ => unreachable!(),
         }
     }

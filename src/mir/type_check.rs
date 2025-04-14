@@ -1,4 +1,4 @@
-use crate::mir::scope::{Scope, explore_block_mut};
+use crate::mir::scope::{Scope, StatementExplorer};
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFunction, MIRStatement,
     MIRStatic, MIRType, MIRTypeInner, Span,
@@ -151,7 +151,7 @@ fn check_static<'a>(ctx: &MIRContext<'a>, static_data: &mut MIRStatic<'a>) -> bo
 fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> bool {
     // TODO: Check return types.
 
-    explore_block_mut(
+    <StatementExplorer>::explore_block_mut(
         &mut function.body,
         &|statement, scope| {
             match statement {
@@ -160,10 +160,14 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                 MIRStatement::DropVariable(..) => {}
                 MIRStatement::Goto { .. } => {}
                 MIRStatement::Label { .. } => {}
+                MIRStatement::ContinueStatement { .. } => {}
+                MIRStatement::BreakStatement { .. } => {}
+                MIRStatement::LoopStatement { .. } => {}
+
                 MIRStatement::SetVariable { value, name, span } => {
                     let var_ty;
 
-                    if let Some(var) = scope.variables.get(name) {
+                    if let Some(var) = scope.get_variable(name) {
                         var_ty = var.ty.clone();
                     } else if let Some(var) = ctx.program.statics.get(name) {
                         var_ty = var.ty.clone();
@@ -212,6 +216,7 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
 
             true
         },
+        &|_, _| true,
         &|_, _| true,
     )
 }
@@ -340,7 +345,7 @@ fn check_expression<'a>(
             }
             MIRExpressionInner::Variable(name, ..) => {
                 if let Some(scope) = scope {
-                    if let Some(var) = scope.variables.get(name) {
+                    if let Some(var) = scope.get_variable(name) {
                         return Some(var.ty.clone());
                     }
                 }

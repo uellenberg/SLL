@@ -1,6 +1,6 @@
-use crate::mir::scope::{explore_block_mut, rewrite_block};
+use crate::mir::scope::StatementExplorer;
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRType, MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -36,7 +36,7 @@ pub fn const_eval(ctx: &mut MIRContext<'_>) -> bool {
 /// This MUST occur after const evaluation.
 pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
     for function in ctx.program.functions.values_mut() {
-        let res = explore_block_mut(
+        let res = <StatementExplorer>::explore_block_mut(
             &mut function.body,
             &|statement, _scope| {
                 match statement {
@@ -45,6 +45,9 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
                     MIRStatement::DropVariable(_, ..) => {}
                     MIRStatement::Goto { .. } => {}
                     MIRStatement::Label { .. } => {}
+                    MIRStatement::ContinueStatement { .. } => {}
+                    MIRStatement::BreakStatement { .. } => {}
+                    MIRStatement::LoopStatement { .. } => {}
 
                     MIRStatement::SetVariable { value, .. }
                     | MIRStatement::IfStatement {
@@ -59,6 +62,7 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
 
                 true
             },
+            &|_, _| true,
             &|_, _| true,
         );
 
@@ -247,7 +251,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
         let mut pre = vec![];
         let mut post = vec![];
 
-        if !rewrite_block(
+        if !<StatementExplorer>::rewrite_block(
             &mut function.body,
             &mut |statement, scope, block| {
                 let new_statement = match statement {
@@ -256,10 +260,14 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                     | MIRStatement::DropVariable(..)
                     | MIRStatement::Goto { .. }
                     | MIRStatement::Label { .. }
-                    | MIRStatement::GotoNotEqual { .. } => {
+                    | MIRStatement::GotoNotEqual { .. }
+                    | MIRStatement::BreakStatement { .. }
+                    | MIRStatement::ContinueStatement { .. }
+                    | MIRStatement::LoopStatement { .. } => {
                         block.push(statement);
                         return true;
                     }
+
                     MIRStatement::IfStatement {
                         condition,
                         on_true,
@@ -300,6 +308,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
 
                 true
             },
+            &mut |_, _| true,
             &mut |_, _| true,
         ) {
             panic!("split_exprs_to_locals returned false!");

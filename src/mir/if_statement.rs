@@ -1,4 +1,4 @@
-use crate::mir::scope::rewrite_block;
+use crate::mir::scope::StatementExplorer;
 use crate::mir::{MIRContext, MIRStatement};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -9,7 +9,7 @@ pub fn flatten_ifs(ctx: &mut MIRContext) {
     for function in ctx.program.functions.values_mut() {
         let label_idx = AtomicU32::new(0);
 
-        if !rewrite_block(
+        if !<StatementExplorer>::rewrite_block(
             &mut function.body,
             &mut |statement, scope, block| {
                 match statement {
@@ -74,6 +74,7 @@ pub fn flatten_ifs(ctx: &mut MIRContext) {
                     }
                 }
             },
+            &mut |_, _| true,
             &mut |_, _| true,
         ) {
             panic!("flatten_ifs returned false!");

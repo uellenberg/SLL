@@ -36,26 +36,45 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
         return false;
     }
 
+    // Type information now exists.
+
     if !const_eval(ctx) {
         return false;
     }
+
+    // Constants are now only literals.
 
     if !const_optimize_expr(ctx) {
         return false;
     }
 
+    // Expressions no longer contain references
+    // to constants.
+
     drop_at_scope_end(ctx);
+
+    // All variables are now dropped.
 
     // This needs to happen after
     // scope drop is added because
     // it erases scope.
     flatten_ifs(ctx);
 
+    // If statements no longer exist
+    // in MIR.
+
     // This needs to happen after all
     // operations that create labels.
     rename_labels(ctx);
 
+    // Labels are now unique and ready
+    // to be processed in asm.
+
     split_exprs_to_locals(ctx);
+
+    // Expressions are now split
+    // into primitives and ready to
+    // be processed in asm.
 
     true
 }
@@ -250,6 +269,31 @@ pub enum MIRStatement<'a> {
         /// Code that runs on the false case.
         on_false: Vec<MIRStatement<'a>>,
 
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
+    /// An infinite loop.
+    LoopStatement {
+        /// Code that runs inside the loop.
+        body: Vec<MIRStatement<'a>>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
+    /// Goes to the top of the parent
+    /// loop.
+    ContinueStatement {
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
+    /// Immediately exits the parent loop.
+    BreakStatement {
         /// The code that created
         /// this item.
         span: Span<'a>,
