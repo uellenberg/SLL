@@ -307,6 +307,24 @@ fn lower_statement<'a>(
 
                             load_var!(var_data, "R1");
                         }
+                        IRLoadBinary::VariableNum(num, var) => {
+                            let var_data = stack_alloc.get(var);
+
+                            // The output type can't expect more
+                            // data than the input can give it.
+                            assert!($output_size.size <= var_data.1.size);
+
+                            load_var!(var_data, "R0");
+
+                            if num >= &0 && num <= &65535 {
+                                ctx.push_instruction(
+                                    "MOV".into(),
+                                    format!("R1, #{}", num.to_string()),
+                                );
+                            } else {
+                                todo!();
+                            }
+                        }
                     }
 
                     binary_op!(op, ("R0", "R1") => &$out_reg);

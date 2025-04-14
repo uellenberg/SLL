@@ -161,6 +161,9 @@ pub enum IRLoadBinary<'a> {
 
     /// A number literal and a variable.
     NumVariable(i64, Cow<'a, str>),
+
+    /// A number literal and a variable.
+    VariableNum(i64, Cow<'a, str>),
 }
 
 /// An operation that can be performed

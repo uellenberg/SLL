@@ -89,7 +89,21 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
                     ..
                 },
             )
-            | $expr_ty(
+        }
+    }
+
+    macro_rules! binary_lv_out {
+        ($lit_val:expr, $var_name:ident, $op_ty:path) => {
+            IRLoadOp::Binary(
+                $op_ty,
+                IRLoadBinary::NumVariable($lit_val, $var_name.clone()),
+            )
+        };
+    }
+
+    macro_rules! binary_vl_in {
+        ($expr_ty:path, $lit_ty:path, $lit_name:ident, $var_name:ident) => {
+            $expr_ty(
                 box MIRExpression {
                     inner: MIRExpressionInner::Variable($var_name),
                     ..
@@ -102,11 +116,11 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
         }
     }
 
-    macro_rules! binary_lv_out {
+    macro_rules! binary_vl_out {
         ($lit_val:expr, $var_name:ident, $op_ty:path) => {
             IRLoadOp::Binary(
                 $op_ty,
-                IRLoadBinary::NumVariable($lit_val, $var_name.clone()),
+                IRLoadBinary::VariableNum($lit_val, $var_name.clone()),
             )
         };
     }
@@ -155,6 +169,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Add32),
 
+        binary_vl_in!(
+            MIRExpressionInner::Add,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Add32),
+
         binary_vv_in!(MIRExpressionInner::Add, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Add32)
         }
@@ -165,6 +186,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             num,
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Sub32),
+
+        binary_vl_in!(
+            MIRExpressionInner::Sub,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Sub32),
 
         binary_vv_in!(MIRExpressionInner::Sub, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Sub32)
@@ -177,6 +205,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Mul32),
 
+        binary_vl_in!(
+            MIRExpressionInner::Mul,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Mul32),
+
         binary_vv_in!(MIRExpressionInner::Mul, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Mul32)
         }
@@ -187,6 +222,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             num,
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Div32),
+
+        binary_vl_in!(
+            MIRExpressionInner::Div,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Div32),
 
         binary_vv_in!(MIRExpressionInner::Div, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Div32)
@@ -199,6 +241,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Equal32),
 
+        binary_vl_in!(
+            MIRExpressionInner::Equal,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Equal32),
+
         binary_vv_in!(MIRExpressionInner::Equal, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Equal32)
         }
@@ -209,6 +258,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             num,
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::NotEqual32),
+
+        binary_vl_in!(
+            MIRExpressionInner::NotEqual,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::NotEqual32),
 
         binary_vv_in!(MIRExpressionInner::NotEqual, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::NotEqual32)
@@ -221,6 +277,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Greater32),
 
+        binary_vl_in!(
+            MIRExpressionInner::Greater,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Greater32),
+
         binary_vv_in!(MIRExpressionInner::Greater, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Greater32)
         }
@@ -231,6 +294,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             num,
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::Less32),
+
+        binary_vl_in!(
+            MIRExpressionInner::Less,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::Less32),
 
         binary_vv_in!(MIRExpressionInner::Less, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::Less32)
@@ -243,6 +313,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::GreaterEq32),
 
+        binary_vl_in!(
+            MIRExpressionInner::GreaterEq,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::GreaterEq32),
+
         binary_vv_in!(MIRExpressionInner::GreaterEq, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::GreaterEq32)
         }
@@ -253,6 +330,13 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             num,
             var
         ) => binary_lv_out!(*num, var, IRBinaryOperation::LessEq32),
+
+        binary_vl_in!(
+            MIRExpressionInner::LessEq,
+            MIRExpressionInner::Number,
+            num,
+            var
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::LessEq32),
 
         binary_vv_in!(MIRExpressionInner::LessEq, var1, var2) => {
             binary_vv_out!(var1, var2, IRBinaryOperation::LessEq32)
@@ -265,12 +349,26 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             var
         ) => binary_lv_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::Equal32),
 
+        binary_vl_in!(
+            MIRExpressionInner::Equal,
+            MIRExpressionInner::Bool,
+            val,
+            var
+        ) => binary_vl_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::Equal32),
+
         binary_lv_in!(
             MIRExpressionInner::NotEqual,
             MIRExpressionInner::Bool,
             val,
             var
         ) => binary_lv_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::NotEqual32),
+
+        binary_vl_in!(
+            MIRExpressionInner::NotEqual,
+            MIRExpressionInner::Bool,
+            val,
+            var
+        ) => binary_vl_out!(if *val { 1 } else { 0 }, var, IRBinaryOperation::NotEqual32),
 
         other => panic!("Unhandled expression during MIR lowering: {other:?}"),
     }
