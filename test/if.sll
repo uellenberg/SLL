@@ -9,4 +9,12 @@ function main() {
     } else {
         g = 30;
     }
+
+    loop {
+        if g == 0 {
+            break;
+        }
+
+        g = g - 1;
+    }
 }

@@ -309,7 +309,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                 true
             },
             &mut |_, _| true,
-            &mut |_, _| true,
+            &mut |_, _, _| true,
         ) {
             panic!("split_exprs_to_locals returned false!");
         }

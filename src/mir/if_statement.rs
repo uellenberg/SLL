@@ -75,7 +75,7 @@ pub fn flatten_ifs(ctx: &mut MIRContext) {
                 }
             },
             &mut |_, _| true,
-            &mut |_, _| true,
+            &mut |_, _, _| true,
         ) {
             panic!("flatten_ifs returned false!");
         }

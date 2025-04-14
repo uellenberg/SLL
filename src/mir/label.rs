@@ -82,7 +82,7 @@ pub fn rename_labels(ctx: &mut MIRContext) {
                 true
             },
             &mut |_, _| true,
-            &mut |_, _| true,
+            &mut |_, _, _| true,
         ) {
             panic!("rename_labels returned false!");
         }

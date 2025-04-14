@@ -2,6 +2,7 @@ mod drop;
 mod expr;
 mod if_statement;
 mod label;
+mod loop_statement;
 pub mod lower;
 mod scope;
 mod type_check;
@@ -10,6 +11,7 @@ use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
 use crate::mir::if_statement::flatten_ifs;
 use crate::mir::label::rename_labels;
+use crate::mir::loop_statement::flatten_loops;
 use crate::mir::type_check::type_check;
 use crate::parser::file_cache::FileCache;
 use std::borrow::Cow;
@@ -54,6 +56,11 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
     drop_at_scope_end(ctx);
 
     // All variables are now dropped.
+
+    flatten_loops(ctx);
+
+    // Loops no longer exist
+    // in MIR.
 
     // This needs to happen after
     // scope drop is added because
