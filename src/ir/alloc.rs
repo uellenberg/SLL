@@ -1,6 +1,6 @@
 use num_traits::PrimInt;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter;
 
 /// Data representing a type
@@ -12,6 +12,35 @@ pub struct TypeData {
 
     /// The type's alignment (in bytes).
     pub align: u32,
+}
+
+/// Used to allocate variables and
+/// temporaries.
+pub trait UnifiedAllocator<'a> {
+    /// Allocates a variable, either as a register
+    /// or on the stack.
+    fn alloc_variable(name: Cow<'a, str>, ty: TypeData);
+
+    /// Deallocates a variable.
+    fn drop_variable(name: &Cow<'a, str>);
+
+    /// Allocates a temporary register, erroring
+    /// on failure.
+    ///
+    /// This register must be dropped using drop_temporary.
+    fn alloc_temporary(&mut self, size: u32) -> TemporaryRegister;
+
+    /// Drops a temporary register
+    /// allocated using alloc_temporary.
+    fn drop_temporary(&mut self, temporary: TemporaryRegister);
+
+    /// Determines how large the stack is, respecting
+    /// alignment.
+    fn stack_size(&self) -> u32;
+
+    /// Returns a list of the registers
+    /// that are used by the program.
+    fn used_regs(&self) -> impl Iterator<Item = &'static str>;
 }
 
 /// Used to determine the offset
@@ -112,17 +141,19 @@ impl<'a> StackAllocator<'a> {
         pos
     }
 
-    /// Deallocates the given variable.
-    pub fn drop(&mut self, name: &Cow<'a, str>) {
-        let var = self
-            .variables
-            .remove(name)
-            .expect("Tried to drop non-existent variable!");
+    /// Deallocates the given variable,
+    /// returning whether the variable existed.
+    pub fn drop(&mut self, name: &Cow<'a, str>) -> bool {
+        let Some(var) = self.variables.remove(name) else {
+            return false;
+        };
 
         // start..(start + size)
         for i in (var.0)..(var.0 + var.1.size) {
             self.blocks[i as usize] = false;
         }
+
+        true
     }
 
     /// Determines how large the stack is, respecting
@@ -142,7 +173,382 @@ impl<'a> StackAllocator<'a> {
             self.blocks[i as usize] = true;
         }
 
-        self.variables.insert(name, (pos, type_data));
+        if !self.variables.insert(name, (pos, type_data)).is_none() {
+            panic!("write_var overrode a variable!");
+        }
+    }
+}
+
+/// Used to allocate variables onto
+/// registers.
+pub struct RegisterAllocator<'a> {
+    /// A list of available registers
+    /// and their size (in bytes),
+    /// ordered by size in descending
+    /// order.
+    available_regs: Vec<(&'static str, u32)>,
+
+    /// A list of currently allocated variables
+    /// and the allocations they contain.
+    variables: HashMap<Cow<'a, str>, RegisterAllocation>,
+
+    /// A list of the registers that were used
+    /// by the register allocator.
+    used_regs: HashSet<&'static str>,
+
+    // TODO: This needs to be per-register-size.
+    /// The minimum required registers for the allocator
+    /// to function.
+    /// If a normal allocation attempts to go below this
+    /// amount, it will fail.
+    /// However, temporary allocations are allowed to
+    /// exceed this amount.
+    min_available: u32,
+}
+
+impl<'a> RegisterAllocator<'a> {
+    /// Creates a new RegisterAllocator.
+    ///
+    /// available_registers is the list of registers
+    /// currently available. It's formatted as (name, bytes).
+    ///
+    /// min_available is the minimum number of registers
+    /// that need to be maintained for temporary allocations.
+    pub fn new(
+        available_registers: impl IntoIterator<Item = (&'static str, u32)>,
+        min_available: u32,
+    ) -> Self {
+        Self {
+            available_regs: available_registers.into_iter().collect(),
+            variables: HashMap::new(),
+            used_regs: HashSet::new(),
+            min_available,
+        }
+    }
+
+    /// Returns a list of the registers
+    /// that are used by the program.
+    pub fn used_regs(&self) -> impl Iterator<Item = &'static str> {
+        self.used_regs.iter().copied()
+    }
+
+    /// Registers a new variable bound
+    /// to the given registers.
+    ///
+    /// These registers must be available, or
+    /// else this function will panic!
+    ///
+    /// This should only be used to create
+    /// variable bindings for registers that
+    /// are already allocated, such as function
+    /// arguments passed as registers.
+    pub fn register_variable(
+        &mut self,
+        name: Cow<'a, str>,
+        registers: impl IntoIterator<Item = &'static str>,
+        ty: TypeData,
+    ) {
+        let mut regs = vec![];
+
+        for reg in registers.into_iter() {
+            regs.push(
+                self.remove_reg(reg)
+                    .expect("register_variable tried to get an unavailable register!"),
+            );
+
+            self.used_regs.insert(reg);
+        }
+
+        if !self
+            .variables
+            .insert(
+                name,
+                RegisterAllocation {
+                    regs,
+                    ty,
+                    freed: false,
+                },
+            )
+            .is_none()
+        {
+            panic!("register_variable overrode a variable!");
+        }
+
+        self.sort_available_regs();
+    }
+
+    /// Tries to allocate a variable into one
+    /// or more registers.
+    pub fn try_alloc(&mut self, name: Cow<'a, str>, ty: TypeData) -> Option<&RegisterAllocation> {
+        let mut space_needed: u32 = ty.size;
+
+        // The last register that's allocated (inclusive).
+        let mut reg_range_end = None;
+
+        for (i, reg) in self.available_regs.iter().enumerate() {
+            // All registers need to be aligned.
+            // Since the list is sorted, if we
+            // reach this point, no other registers
+            // will work.
+            if ty.align > reg.1 {
+                return None;
+            }
+
+            // At this point, we're guaranteed to use this
+            // register.
+            // The code below is just figuring out whether this
+            // will be the final register.
+            self.used_regs.insert(reg.0);
+
+            if space_needed <= reg.1 {
+                reg_range_end = Some(i);
+                break;
+            } else {
+                space_needed -= reg.1;
+            }
+        }
+
+        let reg_range_end = reg_range_end?;
+
+        // Ensure that we don't allocate beyond what's allowed.
+        // Add 1 to convert from last index to length.
+        if self.available_regs.len() - (reg_range_end + 1) < self.min_available as usize {
+            return None;
+        }
+
+        let removed_regs = self.available_regs.drain(0..=reg_range_end).collect();
+        self.sort_available_regs();
+
+        self.variables.insert(
+            name.clone(),
+            RegisterAllocation {
+                regs: removed_regs,
+                ty,
+                freed: false,
+            },
+        );
+        self.variables.get(&name)
+    }
+
+    /// Allocates a temporary register, erroring
+    /// on failure.
+    ///
+    /// This register must be dropped using drop_temporary.
+    pub fn alloc_temporary(&mut self, size: u32) -> TemporaryRegister {
+        let mut reg_idx = None;
+
+        for (i, reg) in self.available_regs.iter().enumerate() {
+            // Since the list is sorted, if we
+            // reach this point, no other registers
+            // will work.
+            if size > reg.1 {
+                panic!("Could not find a temporary register!");
+            }
+
+            if size != reg.1 {
+                continue;
+            }
+
+            reg_idx = Some(i);
+            break;
+        }
+
+        let Some(reg_idx) = reg_idx else {
+            panic!("Could not find a temporary register!");
+        };
+
+        let reg = self.available_regs.remove(reg_idx);
+        self.used_regs.insert(reg.0);
+
+        self.sort_available_regs();
+
+        TemporaryRegister {
+            name: reg.0,
+            size: reg.1,
+            freed: false,
+        }
+    }
+
+    /// Tries to get a previously allocated variable.
+    pub fn get(&self, name: &Cow<'a, str>) -> Option<&RegisterAllocation> {
+        self.variables.get(name)
+    }
+
+    /// Drops the specified variable,
+    /// returning the used registers
+    /// back to the available pool.
+    ///
+    /// Returns whether the variable existed.
+    pub fn drop(&mut self, name: &Cow<'a, str>) -> bool {
+        let Some(alloc) = self.variables.remove(name) else {
+            return false;
+        };
+
+        self.drop_allocation(alloc);
+
+        true
+    }
+
+    /// Drops a temporary register
+    /// allocated using alloc_temporary.
+    pub fn drop_temporary(&mut self, mut temporary: TemporaryRegister) {
+        // Mark the allocation as freed
+        // so that it doesn't error on drop.
+        temporary.freed = true;
+
+        self.available_regs.push((temporary.name, temporary.size));
+
+        self.sort_available_regs();
+    }
+
+    /// Drops the specified allocation,
+    /// returning the used registers
+    /// back to the available pool.
+    fn drop_allocation(&mut self, mut alloc: RegisterAllocation) {
+        // Mark the allocation as freed
+        // so that it doesn't error on drop.
+        alloc.freed = true;
+
+        for reg in &alloc.regs {
+            self.available_regs.push(reg.clone());
+        }
+
+        self.sort_available_regs();
+    }
+
+    /// Sorts the list of available registers.
+    /// Should be called after modifying it.
+    fn sort_available_regs(&mut self) {
+        // Sort descending.
+        self.available_regs.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    }
+
+    /// Tries to remove a register.
+    /// The caller should call sort_available_regs sometime
+    /// after calling this.
+    fn remove_reg(&mut self, name: &'static str) -> Option<(&'static str, u32)> {
+        let idx = self.available_regs.iter().position(|x| x.0 == name)?;
+        Some(self.available_regs.remove(idx))
+    }
+}
+
+/// An allocation spanning one or
+/// more registers.
+pub struct RegisterAllocation {
+    /// A list of the registers
+    /// containing this allocation,
+    /// along with their size (in bytes).
+    ///
+    /// The first item in this list
+    /// represents the data that would
+    /// be at the highest stack position.
+    ///
+    /// We are allowed to descend in size
+    /// as the list goes on, but not ascend.
+    ///
+    /// The minimum register size is the alignment
+    /// of the data being allocated.
+    regs: Vec<(&'static str, u32)>,
+
+    /// Information about the type stored
+    /// in this allocation.
+    ty: TypeData,
+
+    /// Has this register been freed?
+    /// This is used to report errors
+    /// when an allocation is dropped
+    /// without being freed.
+    freed: bool,
+}
+
+impl Drop for RegisterAllocation {
+    fn drop(&mut self) {
+        if !self.freed {
+            panic!("Dropped un-freed register allocation!");
+        }
+    }
+}
+
+impl RegisterAllocation {
+    /// Extracts the read position for
+    /// the given byte offset.
+    ///
+    /// This returns the register name
+    /// to read from, the byte offset
+    /// to read from that register,
+    /// and the number of bytes available
+    /// to read at that position.
+    ///
+    /// Due to the way a register allocation is
+    /// constructed, the number of bytes
+    /// read is guaranteed to be at least
+    /// the alignment size of the
+    /// value you're reading.
+    fn try_read(&self, offset: u32) -> Option<(&'static str, u32, u32)> {
+        let mut total_offset = 0;
+
+        for reg in &self.regs {
+            // If total_offset is 0 and reg is 2 bytes,
+            // this check allows for x < 0 + 2 = offsets
+            // 0 and 1, which are both within the scope
+            // of the register.
+            if offset < total_offset + reg.1 {
+                // Checked operations are used here because this
+                // code has a higher than average chance of containing
+                // mistakes.
+                let local_offset = offset.checked_sub(total_offset).unwrap();
+                // If total_offset is 4 and reg is 2 bytes,
+                // and offset is 4 byte, then local_off is
+                // 0 and we have 2 bytes available.
+                let bytes_available = reg.1.checked_sub(local_offset).unwrap();
+
+                return Some((reg.0, local_offset, bytes_available));
+            } else {
+                total_offset += reg.1;
+            }
+        }
+
+        None
+    }
+}
+
+/// A temporarily allocated register,
+/// used for performing operations.
+///
+/// This will error if dropped incorrectly.
+/// You must pass this back to RegisterAllocator
+/// as drop_temporary.
+pub struct TemporaryRegister {
+    /// The register's name.
+    name: &'static str,
+
+    /// The size (in bytes) of the register.
+    size: u32,
+
+    /// Has this register been freed?
+    /// This is used to report errors
+    /// when an allocation is dropped
+    /// without being freed.
+    freed: bool,
+}
+
+impl Drop for TemporaryRegister {
+    fn drop(&mut self) {
+        if !self.freed {
+            panic!("Dropped un-freed temporary register allocation!");
+        }
+    }
+}
+
+impl TemporaryRegister {
+    /// Gets the register's name.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Gets the size (in bytes) of the register.
+    pub fn bytes(&self) -> u32 {
+        self.size
     }
 }
 
