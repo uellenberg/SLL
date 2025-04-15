@@ -25,6 +25,10 @@ pub trait UnifiedAllocator<'a> {
     type Read4;
     type Read8;
 
+    type Read1Direct;
+    type Read4Direct;
+    type Read8Direct;
+
     /// Allocates a variable, either as a register
     /// or on the stack.
     fn alloc_variable(&mut self, name: Cow<'a, str>, ty: TypeData);
@@ -94,6 +98,33 @@ pub trait UnifiedAllocator<'a> {
     /// be given to drop_maybe_temporary.
     fn read_8(&mut self, ctx: &mut Self::Ctx, name: &Cow<'a, str>, offset: u32) -> Self::Read8;
 
+    /// This version of read_1 only returns
+    /// if it can be achieved without any
+    /// extra assembly.
+    ///
+    /// It returns a register for a variable only
+    /// if that variable is already in the register
+    /// and can be accessed directly.
+    fn read_1_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read1Direct>;
+
+    /// This version of read_4 only returns
+    /// if it can be achieved without any
+    /// extra assembly.
+    ///
+    /// It returns a register for a variable only
+    /// if that variable is already in the register
+    /// and can be accessed directly.
+    fn read_4_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read4Direct>;
+
+    /// This version of read_8 only returns
+    /// if it can be achieved without any
+    /// extra assembly.
+    ///
+    /// It returns a register for a variable only
+    /// if that variable is already in the register
+    /// and can be accessed directly.
+    fn read_8_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read8Direct>;
+
     /// Writes 1 byte from the given register into
     /// the variable at the specified offset.
     /// The offset is not used when reading from
@@ -139,6 +170,7 @@ pub trait UnifiedAllocator<'a> {
 /// Used to allow a read to load temporaries,
 /// if necessary, or to use existing registers.
 /// Size is the number of registers.
+#[derive(Debug, Eq, PartialEq)]
 pub enum RegMaybeTemporary<const Size: usize> {
     Temporary([TemporaryRegister; Size]),
     Register([&'static str; Size]),
@@ -685,7 +717,7 @@ impl RegisterAllocation {
 /// This will error if dropped incorrectly.
 /// You must pass this back to RegisterAllocator
 /// as drop_temporary.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct TemporaryRegister {
     /// The register's name.
     name: &'static str,

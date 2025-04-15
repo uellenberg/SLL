@@ -43,6 +43,9 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
     type Read1 = RegMaybeTemporary<1>;
     type Read4 = RegMaybeTemporary<1>;
     type Read8 = RegMaybeTemporary<2>;
+    type Read1Direct = [&'static str; 1];
+    type Read4Direct = [&'static str; 1];
+    type Read8Direct = [&'static str; 2];
 
     fn alloc_variable(&mut self, name: Cow<'a, str>, ty: TypeData) {
         if self.reg_alloc.try_alloc(name.clone(), ty).is_some() {
@@ -189,10 +192,72 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
             return RegMaybeTemporary::Temporary([temp]);
         }
 
-        panic!("Tried to read1 non-existent variable!");
+        panic!("Tried to read4 non-existent variable!");
     }
 
     fn read_8(&mut self, ctx: &mut Self::Ctx, name: &Cow<'a, str>, offset: u32) -> Self::Read8 {
+        todo!()
+    }
+
+    fn read_1_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read1Direct> {
+        if let Some(reg) = self.reg_alloc.get(name) {
+            let (reg_name, reg_offset, bytes) = reg.try_read(offset).expect("Read1 failed!");
+
+            // 1 byte cannot be spread across multiple registers.
+            assert!(bytes >= 1);
+
+            // If this is stored in a larger type,
+            // it means that the rest of the data
+            // in the register is valid, and therefore
+            // we need a temporary.
+            if reg.ty().size != 1 {
+                // This requires a temporary.
+                return None;
+            }
+
+            // The only data in this register is
+            // the one we want, so we can just
+            // return it directly.
+            // In this case, offset should be 0.
+            assert_eq!(reg_offset, 0);
+
+            return Some([reg_name]);
+        }
+
+        if let Some(_stack) = self.stack_alloc.get(name) {
+            // This requires a temporary.
+            return None;
+        }
+
+        panic!("Tried to read1_direct non-existent variable!");
+    }
+
+    fn read_4_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read4Direct> {
+        // Only aligned reads are allowed.
+        assert_eq!(offset % 4, 0);
+
+        if let Some(reg) = self.reg_alloc.get(name) {
+            let (reg_name, reg_offset, bytes) = reg.try_read(offset).expect("Read4 failed!");
+
+            // Due to alignment, if a 4-byte value is placed in a struct,
+            // it will be aligned to 4 bytes.
+            // Since our registers are only 4-bytes, it's impossible
+            // for a 4-byte value to be spread across multiple registers.
+            assert!(bytes >= 4);
+            assert_eq!(reg_offset, 0);
+
+            return Some([reg_name]);
+        }
+
+        if let Some(_stack) = self.stack_alloc.get(name) {
+            // This requires a temporary.
+            return None;
+        }
+
+        panic!("Tried to read4_direct non-existent variable!");
+    }
+
+    fn read_8_direct(&self, name: &Cow<'a, str>, offset: u32) -> Option<Self::Read8Direct> {
         todo!()
     }
 
@@ -497,14 +562,10 @@ fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
 fn lower_op_binary_32(
     ctx: &mut Arm32Context,
     op: &IRBinaryOperation,
-    store_reg: &RegMaybeTemporary<1>,
-    left_reg: &RegMaybeTemporary<1>,
-    right_reg: &RegMaybeTemporary<1>,
+    store_reg: &str,
+    left_reg: &str,
+    right_reg: &str,
 ) {
-    let store_reg = store_reg.names()[0];
-    let left_reg = left_reg.names()[0];
-    let right_reg = right_reg.names()[0];
-
     match op {
         IRBinaryOperation::Add32 => {
             ctx.push_instruction(
@@ -568,32 +629,78 @@ fn lower_op_binary_32(
 /// register that can be loaded from.
 /// Size is the number of output registers
 /// needed.
+///
+/// If output_reg is provided, this will
+/// try to load into it, although it might
+/// fail.
+/// In that case, it will return the temporary
+/// that it loaded into.
 fn lower_load<'a, const Size: usize>(
     ctx: &mut Arm32Context,
     alloc: &mut Arm32Allocator<'a>,
     ir_load: &IRLoadOp<'a>,
     output_size: TypeData,
-) -> RegMaybeTemporary<Size> {
-    let temporary_size = match Size {
-        1 => 4,
-        2 => todo!(),
-        _ => panic!("Unexpected Size in lower_load!"),
+    output_reg: Option<[&'static str; Size]>,
+) -> Option<RegMaybeTemporary<Size>> {
+    let get_temporary_output = |alloc: &mut Arm32Allocator<'a>| {
+        if let Some(output_reg) = output_reg {
+            RegMaybeTemporary::Register(output_reg)
+        } else {
+            let temporary_size = match Size {
+                1 => 4,
+                2 => todo!(),
+                _ => panic!("Unexpected Size in lower_load!"),
+            };
+
+            match Size {
+                1 => RegMaybeTemporary::Temporary([alloc.alloc_temporary(temporary_size)])
+                    .try_conv()
+                    .unwrap(),
+                2 => todo!(),
+                _ => panic!("Unexpected Size in lower_load!"),
+            }
+        }
+    };
+
+    let get_return = |temporary: RegMaybeTemporary<Size>| {
+        // If we used the output register
+        // as a temporary, we shouldn't
+        // return it.
+        // This will tell the caller that
+        // there's no need for a move and drop.
+
+        // Of course, if there was no output
+        // register to begin with, we'll always
+        // return the temporary.
+        let Some(output_reg) = output_reg else {
+            return Some(temporary);
+        };
+
+        if temporary == RegMaybeTemporary::Register(output_reg) {
+            // We used the output.
+            None
+        } else {
+            // We made a new temporary.
+            Some(temporary)
+        }
     };
 
     match ir_load {
         IRLoadOp::Unary(value) => {
             match value {
                 IRLoadUnary::Num(value) => {
-                    let temp = alloc.alloc_temporary(temporary_size);
-
                     if value >= &0 && value <= &65535 {
-                        ctx.push_instruction(
-                            "MOV".into(),
-                            format!("{}, #{}", temp.name(), value.to_string()),
-                        );
+                        let temp = get_temporary_output(alloc);
 
                         match Size {
-                            1 => RegMaybeTemporary::Temporary([temp]).try_conv().unwrap(),
+                            1 => {
+                                ctx.push_instruction(
+                                    "MOV".into(),
+                                    format!("{}, #{}", temp.names()[0], value.to_string()),
+                                );
+
+                                get_return(temp)
+                            }
                             2 => todo!(),
                             _ => panic!("Unexpected Size in lower_load!"),
                         }
@@ -608,9 +715,15 @@ fn lower_load<'a, const Size: usize>(
                     // data than the input can give it.
                     assert!(output_size.size <= var_data.size);
 
+                    // TODO: Avoid a temporary here when reading stack -> register.
+                    // When you look at this in the future, we can't always read out
+                    // to the output register, so SetVariable will always need to contain
+                    // a MOV.
+                    // The reason is because read_1 might be direct, and will just return
+                    // a register.
                     match var_data.size {
-                        1 => alloc.read_1(ctx, value, 0).try_conv().unwrap(),
-                        4 => alloc.read_4(ctx, value, 0).try_conv().unwrap(),
+                        1 => get_return(alloc.read_1(ctx, value, 0).try_conv().unwrap()),
+                        4 => get_return(alloc.read_4(ctx, value, 0).try_conv().unwrap()),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     }
@@ -631,31 +744,34 @@ fn lower_load<'a, const Size: usize>(
                     // data than the input can give it.
                     assert!(output_size.size <= var1_data.size);
 
-                    let temp =
-                        RegMaybeTemporary::Temporary([alloc.alloc_temporary(temporary_size)])
-                            .try_conv()
-                            .unwrap();
+                    let temp = get_temporary_output(alloc);
 
-                    let left_reg = match var1_data.size {
+                    let left_reg: RegMaybeTemporary<Size> = match var1_data.size {
                         1 => alloc.read_1(ctx, var1, 0).try_conv().unwrap(),
                         4 => alloc.read_4(ctx, var1, 0).try_conv().unwrap(),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     };
 
-                    let right_reg = match var2_data.size {
+                    let right_reg: RegMaybeTemporary<Size> = match var2_data.size {
                         1 => alloc.read_1(ctx, var1, 0).try_conv().unwrap(),
                         4 => alloc.read_4(ctx, var1, 0).try_conv().unwrap(),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     };
 
-                    lower_op_binary_32(ctx, op, &temp, &left_reg, &right_reg);
+                    lower_op_binary_32(
+                        ctx,
+                        op,
+                        temp.names()[0],
+                        left_reg.names()[0],
+                        right_reg.names()[0],
+                    );
 
                     alloc.drop_maybe_temporary(left_reg);
                     alloc.drop_maybe_temporary(right_reg);
 
-                    temp.try_conv().unwrap()
+                    get_return(temp)
                 }
                 IRLoadBinary::NumVariable(num, var) => {
                     let var_data = alloc.get(var);
@@ -664,37 +780,26 @@ fn lower_load<'a, const Size: usize>(
                     // data than the input can give it.
                     assert!(output_size.size <= var_data.size);
 
-                    let temp =
-                        RegMaybeTemporary::Temporary([alloc.alloc_temporary(temporary_size)])
-                            .try_conv()
-                            .unwrap();
+                    let temp = get_temporary_output(alloc);
 
-                    let left_reg = alloc.alloc_temporary(temporary_size);
-
-                    if num >= &0 && num <= &65535 {
-                        ctx.push_instruction(
-                            "MOV".into(),
-                            format!("{}, #{}", left_reg.name(), num.to_string()),
-                        );
+                    let left_num = if num >= &0 && num <= &65535 {
+                        format!("#{}", num.to_string())
                     } else {
                         todo!();
-                    }
+                    };
 
-                    let right_reg = match var_data.size {
+                    let right_reg: RegMaybeTemporary<Size> = match var_data.size {
                         1 => alloc.read_1(ctx, var, 0).try_conv().unwrap(),
                         4 => alloc.read_4(ctx, var, 0).try_conv().unwrap(),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     };
 
-                    let left_reg = RegMaybeTemporary::Temporary([left_reg]).try_conv().unwrap();
+                    lower_op_binary_32(ctx, op, temp.names()[0], &left_num, right_reg.names()[0]);
 
-                    lower_op_binary_32(ctx, op, &temp, &left_reg, &right_reg);
-
-                    alloc.drop_maybe_temporary(left_reg);
                     alloc.drop_maybe_temporary(right_reg);
 
-                    temp.try_conv().unwrap()
+                    get_return(temp)
                 }
                 IRLoadBinary::VariableNum(num, var) => {
                     let var_data = alloc.get(var);
@@ -703,39 +808,26 @@ fn lower_load<'a, const Size: usize>(
                     // data than the input can give it.
                     assert!(output_size.size <= var_data.size);
 
-                    let temp =
-                        RegMaybeTemporary::Temporary([alloc.alloc_temporary(temporary_size)])
-                            .try_conv()
-                            .unwrap();
+                    let temp = get_temporary_output(alloc);
 
-                    let left_reg = match var_data.size {
+                    let left_reg: RegMaybeTemporary<Size> = match var_data.size {
                         1 => alloc.read_1(ctx, var, 0).try_conv().unwrap(),
                         4 => alloc.read_4(ctx, var, 0).try_conv().unwrap(),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     };
 
-                    let right_reg = alloc.alloc_temporary(temporary_size);
-
-                    if num >= &0 && num <= &65535 {
-                        ctx.push_instruction(
-                            "MOV".into(),
-                            format!("{}, #{}", right_reg.name(), num.to_string()),
-                        );
+                    let right_num = if num >= &0 && num <= &65535 {
+                        format!("#{}", num.to_string())
                     } else {
                         todo!();
-                    }
+                    };
 
-                    let right_reg = RegMaybeTemporary::Temporary([right_reg])
-                        .try_conv()
-                        .unwrap();
-
-                    lower_op_binary_32(ctx, op, &temp, &left_reg, &right_reg);
+                    lower_op_binary_32(ctx, op, temp.names()[0], left_reg.names()[0], &right_num);
 
                     alloc.drop_maybe_temporary(left_reg);
-                    alloc.drop_maybe_temporary(right_reg);
 
-                    temp.try_conv().unwrap()
+                    get_return(temp)
                 }
             }
         }
@@ -765,18 +857,34 @@ fn lower_statement<'a>(
             let size = alloc.get(name);
             match size.size {
                 1 => {
-                    let load = lower_load(ctx, alloc, value, size);
+                    let output = alloc.read_1_direct(name, 0);
 
-                    alloc.write_1(ctx, &load, name, 0);
+                    let load = lower_load(ctx, alloc, value, size, output);
 
-                    alloc.drop_maybe_temporary(load);
+                    // If load returns None, it means it wrote
+                    // directly into our output variable.
+                    // Otherwise, it gave a temporary that we
+                    // need to move over to the output.
+                    if let Some(load) = load {
+                        alloc.write_1(ctx, &load, name, 0);
+
+                        alloc.drop_maybe_temporary(load);
+                    }
                 }
                 4 => {
-                    let load = lower_load(ctx, alloc, value, size);
+                    let output = alloc.read_4_direct(name, 0);
 
-                    alloc.write_4(ctx, &load, name, 0);
+                    let load = lower_load(ctx, alloc, value, size, output);
 
-                    alloc.drop_maybe_temporary(load);
+                    // If load returns None, it means it wrote
+                    // directly into our output variable.
+                    // Otherwise, it gave a temporary that we
+                    // need to move over to the output.
+                    if let Some(load) = load {
+                        alloc.write_4(ctx, &load, name, 0);
+
+                        alloc.drop_maybe_temporary(load);
+                    }
                 }
                 8 => todo!(),
                 _ => panic!("Can only set variables with 1, 4, or 8 bytes!"),
@@ -788,7 +896,8 @@ fn lower_statement<'a>(
         }
         IRStatement::Goto { name } => ctx.push_instruction("B".into(), format!(".{}", name)),
         IRStatement::GotoNotEqual { name, condition } => {
-            let load = lower_load::<1>(ctx, alloc, condition, lower_type(&IRType::Bool));
+            let load = lower_load::<1>(ctx, alloc, condition, lower_type(&IRType::Bool), None)
+                .expect("lower_load returned None for GotoNotEqual!");
             let reg_name = load.names()[0];
 
             ctx.push_instruction("CMP".into(), format!("{reg_name}, #1"));
