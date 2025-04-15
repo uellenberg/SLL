@@ -260,7 +260,6 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                     | MIRStatement::DropVariable(..)
                     | MIRStatement::Goto { .. }
                     | MIRStatement::Label { .. }
-                    | MIRStatement::GotoNotEqual { .. }
                     | MIRStatement::BreakStatement { .. }
                     | MIRStatement::ContinueStatement { .. }
                     | MIRStatement::LoopStatement { .. } => {
@@ -275,7 +274,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                         span,
                     } => {
                         let new_condition =
-                            split_expr_to_locals(&condition, &mut pre, &mut post, &local_idx);
+                            split_expr_to_locals(&condition, &mut pre, &mut post, &local_idx, true);
 
                         MIRStatement::IfStatement {
                             condition: new_condition,
@@ -284,9 +283,25 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                             span,
                         }
                     }
+
+                    MIRStatement::GotoNotEqual {
+                        name,
+                        condition,
+                        span,
+                    } => {
+                        let new_condition =
+                            split_expr_to_locals(&condition, &mut pre, &mut post, &local_idx, true);
+
+                        MIRStatement::GotoNotEqual {
+                            name,
+                            condition: new_condition,
+                            span,
+                        }
+                    }
+
                     MIRStatement::SetVariable { value, name, span } => {
                         let new_expr =
-                            split_expr_to_locals(&value, &mut pre, &mut post, &local_idx);
+                            split_expr_to_locals(&value, &mut pre, &mut post, &local_idx, true);
 
                         MIRStatement::SetVariable {
                             value: new_expr,
@@ -319,11 +334,18 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
 /// Post is in reverse order.
 /// When it appears in the code,
 /// it needs to be reversed.
+///
+/// head is used to designate
+/// the top-level expression.
+/// This shouldn't be split into
+/// a local, since it won't be
+/// used in a more complex expression.
 fn split_expr_to_locals<'a>(
     expr: &MIRExpression<'a>,
     pre: &mut Vec<MIRStatement<'a>>,
     post: &mut Vec<MIRStatement<'a>>,
     local_idx: &AtomicU32,
+    head: bool,
 ) -> MIRExpression<'a> {
     let Some(expression_ty) = &expr.ty else {
         panic!("Expression splitting requires type information!");
@@ -334,16 +356,24 @@ fn split_expr_to_locals<'a>(
 
     macro_rules! recurse {
         ($val:expr) => {
-            split_expr_to_locals($val, &mut child_pre, &mut child_post, local_idx)
+            split_expr_to_locals($val, &mut child_pre, &mut child_post, local_idx, false)
         };
     }
+
+    // Simple binary expressions don't
+    // need a variable if they're the head,
+    // since these are already primitive operations.
+    let simple_binary_needs_var = !head;
 
     macro_rules! simple_binary {
         ($left:expr, $right:expr, $name:path) => {{
             let left = recurse!($left);
             let right = recurse!($right);
 
-            ($name(Box::new(left), Box::new(right)), true)
+            (
+                $name(Box::new(left), Box::new(right)),
+                simple_binary_needs_var,
+            )
         }};
     }
 
