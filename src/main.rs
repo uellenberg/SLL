@@ -1,4 +1,5 @@
 #![feature(box_patterns)]
+#![feature(iter_intersperse)]
 
 use crate::ir::arm32::ir_to_arm32;
 use crate::mir::lower::mir_to_ir;

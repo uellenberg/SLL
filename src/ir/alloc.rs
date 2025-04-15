@@ -1,7 +1,8 @@
 use num_traits::PrimInt;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::iter;
+use std::mem::ManuallyDrop;
+use std::{iter, ptr};
 
 /// Data representing a type
 /// at the assembly level.
@@ -17,12 +18,18 @@ pub struct TypeData {
 /// Used to allocate variables and
 /// temporaries.
 pub trait UnifiedAllocator<'a> {
+    type Ctx;
+
+    type Read1;
+    type Read4;
+    type Read8;
+
     /// Allocates a variable, either as a register
     /// or on the stack.
-    fn alloc_variable(name: Cow<'a, str>, ty: TypeData);
+    fn alloc_variable(&mut self, name: Cow<'a, str>, ty: TypeData);
 
     /// Deallocates a variable.
-    fn drop_variable(name: &Cow<'a, str>);
+    fn drop_variable(&mut self, name: &Cow<'a, str>);
 
     /// Allocates a temporary register, erroring
     /// on failure.
@@ -34,6 +41,91 @@ pub trait UnifiedAllocator<'a> {
     /// allocated using alloc_temporary.
     fn drop_temporary(&mut self, temporary: TemporaryRegister);
 
+    /// Drops a RegMaybeTemporary if it contains
+    /// temporaries, otherwise does nothing.
+    fn drop_maybe_temporary<const Size: usize>(
+        &mut self,
+        maybe_temporary: RegMaybeTemporary<Size>,
+    ) {
+        match maybe_temporary {
+            // Nothing to drop.
+            RegMaybeTemporary::Register(_) => {}
+            RegMaybeTemporary::Temporary(temps) => {
+                for temp in temps {
+                    self.drop_temporary(temp);
+                }
+            }
+        }
+    }
+
+    /// Gets information about a variable.
+    /// To read/write data from/to it, use the
+    /// read and write methods.
+    fn get(&self, name: &Cow<'a, str>) -> TypeData;
+
+    /// Reads 1 byte into a register.
+    /// This is not intended for arbitrary reads.
+    /// Rather, it should be used to read an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    ///
+    /// The result returned by this must
+    /// be given to drop_maybe_temporary.
+    fn read_1(&mut self, ctx: &mut Self::Ctx, name: &Cow<'a, str>, offset: u32) -> Self::Read1;
+
+    /// Reads 4 bytes into a register.
+    /// This is not intended for arbitrary reads.
+    /// Rather, it should be used to read an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    ///
+    /// The result returned by this must
+    /// be given to drop_maybe_temporary.
+    fn read_4(&mut self, ctx: &mut Self::Ctx, name: &Cow<'a, str>, offset: u32) -> Self::Read4;
+
+    /// Reads 8 bytes into a register.
+    /// This is not intended for arbitrary reads.
+    /// Rather, it should be used to read an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    ///
+    /// The result returned by this must
+    /// be given to drop_maybe_temporary.
+    fn read_8(&mut self, ctx: &mut Self::Ctx, name: &Cow<'a, str>, offset: u32) -> Self::Read8;
+
+    /// Writes 1 byte from the given register into
+    /// the variable at the specified offset.
+    /// The offset is not used when reading from
+    /// the register.
+    ///
+    /// This is not intended for arbitrary writes.
+    /// Rather, it should be used to write an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    fn write_1(&mut self, ctx: &mut Self::Ctx, reg: &Self::Read1, name: &Cow<'a, str>, offset: u32);
+
+    /// Writes 4 bytes from the given register into
+    /// the variable at the specified offset.
+    /// The offset is not used when reading from
+    /// the register.
+    ///
+    /// This is not intended for arbitrary writes.
+    /// Rather, it should be used to write an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    fn write_4(&mut self, ctx: &mut Self::Ctx, reg: &Self::Read1, name: &Cow<'a, str>, offset: u32);
+
+    /// Writes 8 bytes from the given register into
+    /// the variable at the specified offset.
+    /// The offset is not used when reading from
+    /// the register.
+    ///
+    /// This is not intended for arbitrary writes.
+    /// Rather, it should be used to write an entire
+    /// data type, or an entire data type
+    /// stored within another data type.
+    fn write_8(&mut self, ctx: &mut Self::Ctx, reg: &Self::Read1, name: &Cow<'a, str>, offset: u32);
+
     /// Determines how large the stack is, respecting
     /// alignment.
     fn stack_size(&self) -> u32;
@@ -41,6 +133,52 @@ pub trait UnifiedAllocator<'a> {
     /// Returns a list of the registers
     /// that are used by the program.
     fn used_regs(&self) -> impl Iterator<Item = &'static str>;
+}
+
+/// Used to allow a read to load temporaries,
+/// if necessary, or to use existing registers.
+/// Size is the number of registers.
+pub enum RegMaybeTemporary<const Size: usize> {
+    Temporary([TemporaryRegister; Size]),
+    Register([&'static str; Size]),
+}
+
+impl<const Size: usize> RegMaybeTemporary<Size> {
+    /// Gets the names of the registers
+    /// stored inside this container.
+    pub fn names(&self) -> [&'static str; Size] {
+        let mut output = [""; Size];
+
+        match self {
+            RegMaybeTemporary::Temporary(temps) => {
+                for i in 0..Size {
+                    output[i] = temps[i].name;
+                }
+            }
+            RegMaybeTemporary::Register(registers) => {
+                for i in 0..Size {
+                    output[i] = registers[i];
+                }
+            }
+        }
+
+        output
+    }
+
+    pub fn try_conv<const OtherSize: usize>(self) -> Option<RegMaybeTemporary<OtherSize>> {
+        if Size == OtherSize {
+            let to_move = ManuallyDrop::new(self);
+
+            let read_ptr = &to_move as *const _ as *const RegMaybeTemporary<Size>;
+            assert!(read_ptr.is_aligned());
+
+            // SAFETY: We've verified that the types are the same size,
+            //         and verified alignment.
+            Some(unsafe { ptr::read(read_ptr as *const RegMaybeTemporary<OtherSize>) })
+        } else {
+            None
+        }
+    }
 }
 
 /// Used to determine the offset
@@ -163,8 +301,8 @@ impl<'a> StackAllocator<'a> {
     }
 
     /// Gets the stack position of a certain variable.
-    pub fn get(&self, name: &Cow<'a, str>) -> (u32, TypeData) {
-        self.variables[name]
+    pub fn get(&self, name: &Cow<'a, str>) -> Option<(u32, TypeData)> {
+        self.variables.get(name).copied()
     }
 
     /// Creates a variable at the specified position.
@@ -182,6 +320,8 @@ impl<'a> StackAllocator<'a> {
 /// Used to allocate variables onto
 /// registers.
 pub struct RegisterAllocator<'a> {
+    // TODO: We need to favor already used registers in our sorting.
+    //       Right now, a lot more registers are being used than should be.
     /// A list of available registers
     /// and their size (in bytes),
     /// ordered by size in descending
@@ -484,7 +624,7 @@ impl RegisterAllocation {
     /// read is guaranteed to be at least
     /// the alignment size of the
     /// value you're reading.
-    fn try_read(&self, offset: u32) -> Option<(&'static str, u32, u32)> {
+    pub fn try_read(&self, offset: u32) -> Option<(&'static str, u32, u32)> {
         let mut total_offset = 0;
 
         for reg in &self.regs {
@@ -510,6 +650,12 @@ impl RegisterAllocation {
 
         None
     }
+
+    /// Returns information about the type
+    /// stored in this allocation.
+    pub fn ty(&self) -> TypeData {
+        self.ty
+    }
 }
 
 /// A temporarily allocated register,
@@ -518,6 +664,7 @@ impl RegisterAllocation {
 /// This will error if dropped incorrectly.
 /// You must pass this back to RegisterAllocator
 /// as drop_temporary.
+#[derive(Debug)]
 pub struct TemporaryRegister {
     /// The register's name.
     name: &'static str,

@@ -17,4 +17,18 @@ function main() {
 
         g = g - 1;
     }
+
+    let a1: u32;
+    let a2: u32;
+    let a3: u32;
+    let a4: u32;
+    let a5: u32;
+    a5 = 10;
+    let a6: u32;
+    let a7: u32;
+    let a8: u32;
+    let a9: u32;
+    a9 = 20;
+
+    a1 = 1 + a9;
 }
