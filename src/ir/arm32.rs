@@ -754,8 +754,8 @@ fn lower_load<'a, const Size: usize>(
                     };
 
                     let right_reg: RegMaybeTemporary<Size> = match var2_data.size {
-                        1 => alloc.read_1(ctx, var1, 0).try_conv().unwrap(),
-                        4 => alloc.read_4(ctx, var1, 0).try_conv().unwrap(),
+                        1 => alloc.read_1(ctx, var2, 0).try_conv().unwrap(),
+                        4 => alloc.read_4(ctx, var2, 0).try_conv().unwrap(),
                         8 => todo!(),
                         _ => panic!("Unexpected Size in lower_load!"),
                     };

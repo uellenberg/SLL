@@ -1,0 +1,4 @@
+function main() {
+    let v: u32 = 10;
+    v = v * v * v;
+}

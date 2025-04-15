@@ -466,15 +466,24 @@ fn split_expr_to_locals<'a>(
             ty: Some(expression_ty.clone()),
             span: expr.span.clone(),
         };
+
+        // This needs to be applied in reverse
+        // order, since that's how it's
+        // constructed.
+        child_post.reverse();
+        pre.append(&mut child_post);
     } else {
         final_expr = new_expr;
-    }
 
-    // This needs to be applied in reverse
-    // order, since that's how it's
-    // constructed.
-    child_post.reverse();
-    pre.append(&mut child_post);
+        // Because we have no variable, we
+        // can't apply child_post right now
+        // or else we might drop something before
+        // it gets used.
+        // Instead, we'll give it to the parent.
+        // No reverse here, since that'll get done
+        // when everything is applied in the end.
+        post.append(&mut child_post);
+    }
 
     final_expr
 }
