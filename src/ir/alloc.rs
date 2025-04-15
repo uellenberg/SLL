@@ -1,5 +1,6 @@
 use num_traits::PrimInt;
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::ManuallyDrop;
 use std::{iter, ptr};
@@ -320,8 +321,6 @@ impl<'a> StackAllocator<'a> {
 /// Used to allocate variables onto
 /// registers.
 pub struct RegisterAllocator<'a> {
-    // TODO: We need to favor already used registers in our sorting.
-    //       Right now, a lot more registers are being used than should be.
     /// A list of available registers
     /// and their size (in bytes),
     /// ordered by size in descending
@@ -558,9 +557,31 @@ impl<'a> RegisterAllocator<'a> {
 
     /// Sorts the list of available registers.
     /// Should be called after modifying it.
+    /// This should also happen after updating
+    /// used_regs.
     fn sort_available_regs(&mut self) {
+        let used_regs = &self.used_regs;
+
         // Sort descending.
-        self.available_regs.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        self.available_regs.sort_unstable_by(|a, b| {
+            // Swap operands for descending
+            // order.
+            let cmp = b.1.cmp(&a.1);
+
+            // This makes sure that the registers
+            // which come first are those which have
+            // already been used.
+            // Doing so reduces the number of
+            // registers required for the function.
+            if cmp == Ordering::Equal {
+                // We want true on the left,
+                // which is descending order,
+                // so swap operands.
+                used_regs.contains(b.0).cmp(&used_regs.contains(a.0))
+            } else {
+                cmp
+            }
+        });
     }
 
     /// Tries to remove a register.
