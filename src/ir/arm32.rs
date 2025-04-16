@@ -7,6 +7,7 @@ use crate::ir::{
     IRStatement, IRStatic, IRType,
 };
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 #[derive(Default, Clone)]
@@ -33,16 +34,27 @@ impl Arm32Context {
     }
 }
 
-struct Arm32Allocator<'a> {
+/// Used to allocate variables in a function
+/// context.
+struct Arm32Allocator<'a, 'b> {
+    /// Allocates locals onto registers.
     reg_alloc: RegisterAllocator<'a>,
+
+    /// Allocates locals on the stack.
     stack_alloc: StackAllocator<'a>,
+
+    /// A list of statics that the
+    /// function has access to.
+    statics: &'b HashMap<Cow<'a, str>, TypeData>,
 }
 
-impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
+impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
     type Ctx = Arm32Context;
+
     type Read1 = RegMaybeTemporary<1>;
     type Read4 = RegMaybeTemporary<1>;
     type Read8 = RegMaybeTemporary<2>;
+
     type Read1Direct = [&'static str; 1];
     type Read4Direct = [&'static str; 1];
     type Read8Direct = [&'static str; 2];
@@ -84,6 +96,10 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
 
         if let Some(data) = self.stack_alloc.get(name) {
             return data.1;
+        }
+
+        if let Some(data) = self.statics.get(name) {
+            return *data;
         }
 
         panic!("Failed to get variable info!");
@@ -160,6 +176,25 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
             return RegMaybeTemporary::Temporary([temp]);
         }
 
+        if let Some(_static_data) = self.statics.get(name) {
+            // Minimum register 4 bytes.
+            let temp = self.alloc_temporary(4);
+
+            ctx.push_instruction("LDR".into(), format!("{}, ={}", temp.name(), name));
+
+            if offset == 0 {
+                ctx.push_instruction("LDRB".into(), format!("{}, [{}]", temp.name(), temp.name()));
+            } else {
+                // TODO: Should this be positive?
+                ctx.push_instruction(
+                    "LDRB".into(),
+                    format!("{}, [{}, #-{}]", temp.name(), temp.name(), offset),
+                );
+            }
+
+            return RegMaybeTemporary::Temporary([temp]);
+        }
+
         panic!("Tried to read1 non-existent variable!");
     }
 
@@ -188,6 +223,25 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
                 "LDR".into(),
                 format!("{}, [FP, #-{}]", temp.name(), offset + stack.0),
             );
+
+            return RegMaybeTemporary::Temporary([temp]);
+        }
+
+        if let Some(_static_data) = self.statics.get(name) {
+            // Minimum register 4 bytes.
+            let temp = self.alloc_temporary(4);
+
+            ctx.push_instruction("LDR".into(), format!("{}, ={}", temp.name(), name));
+
+            if offset == 0 {
+                ctx.push_instruction("LDR".into(), format!("{}, [{}]", temp.name(), temp.name()));
+            } else {
+                // TODO: Should this be positive?
+                ctx.push_instruction(
+                    "LDR".into(),
+                    format!("{}, [{}, #-{}]", temp.name(), temp.name(), offset),
+                );
+            }
 
             return RegMaybeTemporary::Temporary([temp]);
         }
@@ -229,6 +283,11 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
             return None;
         }
 
+        if let Some(_static_data) = self.statics.get(name) {
+            // This requires a temporary.
+            return None;
+        }
+
         panic!("Tried to read1_direct non-existent variable!");
     }
 
@@ -250,6 +309,11 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
         }
 
         if let Some(_stack) = self.stack_alloc.get(name) {
+            // This requires a temporary.
+            return None;
+        }
+
+        if let Some(_static_data) = self.statics.get(name) {
             // This requires a temporary.
             return None;
         }
@@ -327,6 +391,30 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
             return;
         }
 
+        if let Some(_static_data) = self.statics.get(name) {
+            // Minimum register 4 bytes.
+            let temp = self.alloc_temporary(4);
+
+            ctx.push_instruction("LDR".into(), format!("{}, ={}", temp.name(), name));
+
+            if offset == 0 {
+                ctx.push_instruction(
+                    "STRB".into(),
+                    format!("{}, [{}]", from_reg_name, temp.name()),
+                );
+            } else {
+                // TODO: Should this be positive?
+                ctx.push_instruction(
+                    "STRB".into(),
+                    format!("{}, [{}, #-{}]", from_reg_name, temp.name(), offset),
+                );
+            }
+
+            self.drop_temporary(temp);
+
+            return;
+        }
+
         panic!("Tried to write1 non-existent variable!");
     }
 
@@ -366,7 +454,31 @@ impl<'a> UnifiedAllocator<'a> for Arm32Allocator<'a> {
             return;
         }
 
-        panic!("Tried to read4 non-existent variable!");
+        if let Some(_static_data) = self.statics.get(name) {
+            // Minimum register 4 bytes.
+            let temp = self.alloc_temporary(4);
+
+            ctx.push_instruction("LDR".into(), format!("{}, ={}", temp.name(), name));
+
+            if offset == 0 {
+                ctx.push_instruction(
+                    "STR".into(),
+                    format!("{}, [{}]", from_reg_name, temp.name()),
+                );
+            } else {
+                // TODO: Should this be positive?
+                ctx.push_instruction(
+                    "STR".into(),
+                    format!("{}, [{}, #-{}]", from_reg_name, temp.name(), offset),
+                );
+            }
+
+            self.drop_temporary(temp);
+
+            return;
+        }
+
+        panic!("Tried to write4 non-existent variable!");
     }
 
     fn write_8(
@@ -402,15 +514,24 @@ pub fn ir_to_arm32<'a>(program: &IRProgram<'a>) -> String {
 
     ctx.push_instruction(".section".into(), ".data".into());
 
+    let mut statics = HashMap::new();
+
     for static_data in &program.statics {
         lower_static(&mut ctx, static_data.1);
+
+        if statics
+            .insert(static_data.0.clone(), lower_type(&static_data.1.ty))
+            .is_some()
+        {
+            panic!("Overrode static!");
+        }
     }
 
     ctx.push_instruction(".section".into(), ".text".into());
     ctx.push_instruction(".global".into(), ".main".into());
 
     for function in &program.functions {
-        lower_function(&mut ctx, function.1);
+        lower_function(&mut ctx, &statics, function.1);
     }
 
     ctx.data
@@ -451,7 +572,11 @@ fn lower_static<'a>(ctx: &mut Arm32Context, ir_static: &IRStatic<'a>) {
 }
 
 /// Converts IRFunction to Arm32.
-fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
+fn lower_function<'a>(
+    ctx: &mut Arm32Context,
+    statics: &HashMap<Cow<'a, str>, TypeData>,
+    ir_function: &IRFunction<'a>,
+) {
     if ir_function.args.len() > 0 {
         todo!();
     }
@@ -488,6 +613,7 @@ fn lower_function<'a>(ctx: &mut Arm32Context, ir_function: &IRFunction<'a>) {
         // of 4 for the old FP (currently, FP points to the old FP).
         stack_alloc: StackAllocator::new(8, 4),
         reg_alloc: RegisterAllocator::new(registers.clone(), 3),
+        statics,
     };
 
     for statement in &ir_function.body {
@@ -637,12 +763,12 @@ fn lower_op_binary_32(
 /// that it loaded into.
 fn lower_load<'a, const Size: usize>(
     ctx: &mut Arm32Context,
-    alloc: &mut Arm32Allocator<'a>,
+    alloc: &mut Arm32Allocator<'a, '_>,
     ir_load: &IRLoadOp<'a>,
     output_size: TypeData,
     output_reg: Option<[&'static str; Size]>,
 ) -> Option<RegMaybeTemporary<Size>> {
-    let get_temporary_output = |alloc: &mut Arm32Allocator<'a>| {
+    let get_temporary_output = |alloc: &mut Arm32Allocator<'a, '_>| {
         if let Some(output_reg) = output_reg {
             RegMaybeTemporary::Register(output_reg)
         } else {
@@ -839,7 +965,7 @@ fn lower_load<'a, const Size: usize>(
 /// ran through every statement.
 fn lower_statement<'a>(
     ctx: &mut Arm32Context,
-    alloc: &mut Arm32Allocator<'a>,
+    alloc: &mut Arm32Allocator<'a, '_>,
     ir_statement: &IRStatement<'a>,
 ) {
     // TODO: Handle statics and constants.
