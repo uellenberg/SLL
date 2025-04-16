@@ -505,7 +505,7 @@ pub fn ir_to_arm32<'a>(program: &IRProgram<'a>) -> String {
     let mut ctx = Arm32Context::default();
 
     ctx.push_instruction(".syntax".into(), "unified".into());
-    ctx.push_instruction(".arm".into(), "".into());
+    ctx.push_instruction(".thumb".into(), "".into());
 
     // TODO: Not all const / static names (e.g., "b") are valid.
     for constant in &program.constants {
@@ -528,7 +528,7 @@ pub fn ir_to_arm32<'a>(program: &IRProgram<'a>) -> String {
     }
 
     ctx.push_instruction(".section".into(), ".text".into());
-    ctx.push_instruction(".global".into(), ".main".into());
+    ctx.push_instruction(".global".into(), "main".into());
 
     for function in &program.functions {
         lower_function(&mut ctx, &statics, function.1);
@@ -634,7 +634,7 @@ fn lower_function<'a>(
     }
 
     // Function names are unique.
-    ctx.push_label(format!(".{}", ir_function.name));
+    ctx.push_label(format!("{}", ir_function.name));
 
     // Save calling data.
     ctx.push_instruction("PUSH".into(), format!("{{{}}}", push));
@@ -720,31 +720,37 @@ fn lower_op_binary_32(
         IRBinaryOperation::Equal32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "EQ".into());
             ctx.push_instruction("MOVEQ".into(), format!("{}, #1", store_reg));
         }
         IRBinaryOperation::NotEqual32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "NE".into());
             ctx.push_instruction("MOVNE".into(), format!("{}, #1", store_reg));
         }
         IRBinaryOperation::Less32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "LT".into());
             ctx.push_instruction("MOVLT".into(), format!("{}, #1", store_reg));
         }
         IRBinaryOperation::Greater32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "GT".into());
             ctx.push_instruction("MOVGT".into(), format!("{}, #1", store_reg));
         }
         IRBinaryOperation::LessEq32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "LE".into());
             ctx.push_instruction("MOVLE".into(), format!("{}, #1", store_reg));
         }
         IRBinaryOperation::GreaterEq32 => {
             ctx.push_instruction("CMP".into(), format!("{}, {}", &left_reg, &right_reg));
             ctx.push_instruction("MOV".into(), format!("{}, #0", &store_reg));
+            ctx.push_instruction("IT".into(), "GE".into());
             ctx.push_instruction("MOVGE".into(), format!("{}, #1", store_reg));
         }
         _ => todo!(),
