@@ -1,5 +1,6 @@
 mod alloc;
 pub mod arm32;
+mod display;
 
 use std::borrow::Cow;
 use std::collections::HashMap;

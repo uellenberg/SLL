@@ -1,8 +1,9 @@
 use crate::mir::scope::{Scope, StatementExplorer};
 use crate::mir::{
     MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFunction, MIRStatement,
-    MIRStatic, MIRType, MIRTypeInner, Span,
+    MIRStatic, MIRType, MIRTypeInner,
 };
+use crate::parser::span::Span;
 use ariadne::{ColorGenerator, Fmt, Label, Report, ReportKind};
 use std::borrow::Cow;
 

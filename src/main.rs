@@ -17,12 +17,16 @@ fn main() {
         return;
     }
 
+    println!("{}", mir_ctx.program);
+
     if !visit_mir(&mut mir_ctx) {
         return;
     }
 
+    println!("{:#}", mir_ctx.program);
+
     let ir = mir_to_ir(&mir_ctx.program);
-    println!("{ir:#?}");
+    println!("{ir}");
 
     let asm = ir_to_arm32(&ir);
 
