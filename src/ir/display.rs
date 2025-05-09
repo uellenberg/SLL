@@ -1,8 +1,7 @@
 use crate::ir::{
-    IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary, IRProgram,
-    IRStatement, IRStatic, IRType,
+    IRBinaryOperation, IRConstant, IRFnCall, IRFnSource, IRFunction, IRLoadBinary, IRLoadOp,
+    IRLoadUnary, IRProgram, IRStatement, IRStatic, IRType,
 };
-use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 
 impl<'a> Display for IRProgram<'a> {
@@ -91,6 +90,9 @@ impl<'a> Display for IRStatement<'a> {
             IRStatement::SetVariable { name, value } => {
                 write!(f, "{} = {};", name, value)
             }
+            IRStatement::FunctionCall(fn_data) => {
+                write!(f, "{}", fn_data)
+            }
             IRStatement::Label { name } => {
                 write!(f, "label {}:", name)
             }
@@ -170,6 +172,30 @@ impl<'a> Display for IRType<'a> {
                 ret
             ),
             IRType::Named(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl<'a> Display for IRFnCall<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", &self.source)?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ");")?;
+
+        Ok(())
+    }
+}
+
+impl<'a> Display for IRFnSource<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IRFnSource::Direct(name) => write!(f, "{name}"),
+            IRFnSource::Indirect(expr) => write!(f, "{}", expr),
         }
     }
 }

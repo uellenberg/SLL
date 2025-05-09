@@ -595,7 +595,12 @@ impl<'a> RegisterAllocator<'a> {
         let used_regs = &self.used_regs;
 
         // Sort descending.
-        self.available_regs.sort_unstable_by(|a, b| {
+        // This uses stable sort
+        // to preserve register order,
+        // since that's done such that
+        // function call registers are used
+        // last.
+        self.available_regs.sort_by(|a, b| {
             // Swap operands for descending
             // order.
             let cmp = b.1.cmp(&a.1);

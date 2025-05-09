@@ -1,10 +1,10 @@
 use crate::ir::{
-    IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary, IRProgram,
-    IRStatement, IRStatic, IRType, IRVariable,
+    IRBinaryOperation, IRConstant, IRFnCall, IRFnSource, IRFunction, IRLoadBinary, IRLoadOp,
+    IRLoadUnary, IRProgram, IRStatement, IRStatic, IRType, IRVariable,
 };
 use crate::mir::{
-    MIRConstant, MIRExpression, MIRExpressionInner, MIRFunction, MIRProgram, MIRStatement,
-    MIRStatic, MIRTypeInner, MIRVariable,
+    MIRConstant, MIRExpression, MIRExpressionInner, MIRFnCall, MIRFnSource, MIRFunction,
+    MIRProgram, MIRStatement, MIRStatic, MIRTypeInner, MIRVariable,
 };
 
 /// Converts a MIRProgram into an IRProgram.
@@ -75,6 +75,7 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> Option<IRStatement<'
             name: name.clone(),
             value: lower_expression(value),
         },
+        MIRStatement::FunctionCall(fn_data) => IRStatement::FunctionCall(lower_fn_call(fn_data)),
         MIRStatement::Label { name, .. } => IRStatement::Label { name: name.clone() },
         MIRStatement::Goto { name, .. } => IRStatement::Goto { name: name.clone() },
         MIRStatement::GotoNotEqual {
@@ -420,7 +421,14 @@ fn lower_function<'a>(mir_function: &MIRFunction<'a>) -> IRFunction<'a> {
         other => Some(lower_type(other)),
     };
 
-    let ir_args = mir_function.args.iter().map(lower_variable).collect();
+    let ir_args = mir_function
+        .args
+        .iter()
+        // Unit arguments don't exist at
+        // the IR level.
+        .filter(|arg| arg.ty.ty != MIRTypeInner::Unit)
+        .map(lower_variable)
+        .collect();
 
     let ir_body = mir_function.body.iter().flat_map(lower_statement).collect();
 
@@ -429,5 +437,30 @@ fn lower_function<'a>(mir_function: &MIRFunction<'a>) -> IRFunction<'a> {
         ret_ty: ir_ret_ty,
         args: ir_args,
         body: ir_body,
+    }
+}
+
+/// Converts MIRFnCall to IRFnCall.
+fn lower_fn_call<'a>(mir_fn_call: &MIRFnCall<'a>) -> IRFnCall<'a> {
+    IRFnCall {
+        source: lower_fn_source(&mir_fn_call.source),
+        args: mir_fn_call
+            .args
+            .iter()
+            .map(|arg| lower_expression(arg))
+            .collect(),
+        // Unit means no return.
+        ret_ty: match &mir_fn_call.ret_ty.as_ref().unwrap().ty {
+            MIRTypeInner::Unit => None,
+            other => Some(lower_type(other)),
+        },
+    }
+}
+
+/// Converts MIRFnSource to IRFnSource.
+fn lower_fn_source<'a>(mir_fn_source: &MIRFnSource<'a>) -> IRFnSource<'a> {
+    match mir_fn_source {
+        MIRFnSource::Direct(name, _span) => IRFnSource::Direct(name.clone()),
+        MIRFnSource::Indirect(expr) => IRFnSource::Indirect(lower_expression(expr)),
     }
 }

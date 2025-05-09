@@ -588,10 +588,6 @@ fn lower_function<'a>(
 
     // TODO: Restrict function arg registers.
     let registers = [
-        ("R0", 4),
-        ("R1", 4),
-        ("R2", 4),
-        ("R3", 4),
         ("R4", 4),
         ("R5", 4),
         ("R6", 4),
@@ -599,6 +595,15 @@ fn lower_function<'a>(
         ("R8", 4),
         ("R9", 4),
         ("R10", 4),
+        // These are last because they're used
+        // for function calls, and if we use
+        // them, we have to push/pop the stack
+        // to save them.
+        // TODO: Implement an actual priority system for this.
+        ("R0", 4),
+        ("R1", 4),
+        ("R2", 4),
+        ("R3", 4),
     ];
 
     // We need a new context for the inner statements.
@@ -1022,6 +1027,14 @@ fn lower_statement<'a>(
                 8 => todo!(),
                 _ => panic!("Can only set variables with 1, 4, or 8 bytes!"),
             }
+        }
+        IRStatement::FunctionCall(fn_data) => {
+            // What has to be implemented:
+            // - Offloading registers to the stack.
+            // - Allocating specific registers for args.
+            // - Ensuring that a BLX lives in a register.
+            // - Restoring variables after the call.
+            todo!();
         }
         IRStatement::Label { name } => {
             // Label names are unique.

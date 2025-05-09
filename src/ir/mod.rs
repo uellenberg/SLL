@@ -106,6 +106,9 @@ pub enum IRStatement<'a> {
         value: IRLoadOp<'a>,
     },
 
+    /// Calls a function, ignoring its return value.
+    FunctionCall(IRFnCall<'a>),
+
     /// A label that can be jumped to.
     Label {
         /// Is the label's name.
@@ -133,7 +136,7 @@ pub enum IRStatement<'a> {
 
 /// Performs a load and an optional
 /// operation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRLoadOp<'a> {
     /// Performs a unary operation.
     Unary(IRLoadUnary<'a>),
@@ -144,7 +147,7 @@ pub enum IRLoadOp<'a> {
 
 /// A single piece of data that's
 /// loaded in for an operation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRLoadUnary<'a> {
     /// A variable.
     Variable(Cow<'a, str>),
@@ -155,7 +158,7 @@ pub enum IRLoadUnary<'a> {
 
 /// A single piece of data that's
 /// loaded in for an operation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRLoadBinary<'a> {
     /// Two variables.
     VariableVariable(Cow<'a, str>, Cow<'a, str>),
@@ -173,7 +176,7 @@ pub enum IRLoadBinary<'a> {
 /// bit size.
 /// For example, Add32 must work for
 /// 8-bit numbers.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IRBinaryOperation {
     /// Add two 32-bit ints.
     Add32,
@@ -226,4 +229,35 @@ pub enum IRType<'a> {
 
     /// A named type (struct).
     Named(Cow<'a, str>),
+}
+
+/// A function call.
+#[derive(Debug, Clone)]
+pub struct IRFnCall<'a> {
+    /// The source for the function (name or ptr).
+    pub source: IRFnSource<'a>,
+
+    /// The function's arguments.
+    pub args: Vec<IRLoadOp<'a>>,
+
+    /// The function's return type.
+    /// None if it doesn't return
+    /// anything.
+    pub ret_ty: Option<IRType<'a>>,
+}
+
+/// The source for a function pointer
+/// when performing a function call.
+#[derive(Debug, Clone)]
+pub enum IRFnSource<'a> {
+    /// A direct function call, containing
+    /// the name of the function to call.
+    Direct(Cow<'a, str>),
+
+    /// An indirect function call, meaning
+    /// the function pointer is stored in
+    /// a variable.
+    /// Contains the name of the variable
+    /// storing the pointer.
+    Indirect(IRLoadOp<'a>),
 }
