@@ -42,7 +42,7 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
             &|statement, _scope| {
                 match statement {
                     // No expressions.
-                    MIRStatement::CreateVariable(_, ..) => {}
+                    MIRStatement::CreateVariable { .. } => {}
                     MIRStatement::DropVariable(_, ..) => {}
                     MIRStatement::Goto { .. } => {}
                     MIRStatement::Label { .. } => {}
@@ -263,7 +263,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
             &mut |statement, scope, block| {
                 let new_statement = match statement {
                     // No expressions.
-                    MIRStatement::CreateVariable(..)
+                    MIRStatement::CreateVariable { .. }
                     | MIRStatement::DropVariable(..)
                     | MIRStatement::Goto { .. }
                     | MIRStatement::Label { .. }
@@ -461,16 +461,18 @@ fn split_expr_to_locals<'a>(
         let local_idx = local_idx.fetch_add(1, Ordering::Relaxed);
         let local_name = format!("$local_{local_idx}");
 
-        pre.push(MIRStatement::CreateVariable(
-            MIRVariable {
+        pre.push(MIRStatement::CreateVariable {
+            var: MIRVariable {
                 name: Cow::Owned(local_name.clone()),
                 ty: expression_ty.clone(),
                 // This span isn't correct, but good enough.
                 span: expr.span.clone(),
             },
+            // Real variable.
+            arg: true,
             // This span isn't correct, but good enough.
-            expr.span.clone(),
-        ));
+            span: expr.span.clone(),
+        });
 
         pre.push(MIRStatement::SetVariable {
             value: new_expr,

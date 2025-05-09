@@ -9,16 +9,16 @@ use crate::mir::{
 /// This needs to run before type checking, so
 /// that type checking can accurately understand
 /// a function's source.
-pub fn resolve_fn_to_vars<'a>(ctx: &mut MIRContext<'_>) -> bool {
+pub fn resolve_fn_to_vars<'a>(ctx: &mut MIRContext<'_>) {
     let mut functions = ctx.program.functions.clone();
 
     for function in functions.values_mut() {
-        if !<StatementExplorer>::explore_block_mut(
+        <StatementExplorer>::explore_block_mut(
             &mut function.body,
             &|statement, scope| {
                 match statement {
                     // No expressions.
-                    MIRStatement::CreateVariable(_, ..) => {}
+                    MIRStatement::CreateVariable { .. } => {}
                     MIRStatement::DropVariable(_, ..) => {}
                     MIRStatement::Goto { .. } => {}
                     MIRStatement::Label { .. } => {}
@@ -61,12 +61,8 @@ pub fn resolve_fn_to_vars<'a>(ctx: &mut MIRContext<'_>) -> bool {
             },
             &|_, _| true,
             &|_, _| true,
-        ) {
-            return false;
-        }
+        );
     }
-
-    true
 }
 
 /// Changes direct function calls to indirect
@@ -87,5 +83,23 @@ pub fn get_fn_type<'a>(fn_data: &MIRFunction<'a>) -> MIRType<'a> {
             Box::new(fn_data.ret_ty.ty.clone()),
         ),
         span: Some(fn_data.span.clone()),
+    }
+}
+
+/// Inserts phantom variables to represent
+/// function arguments.
+pub fn insert_fn_arg_args(ctx: &mut MIRContext<'_>) {
+    for function in ctx.program.functions.values_mut() {
+        function.body.splice(
+            0..0,
+            function
+                .args
+                .iter()
+                .map(|arg| MIRStatement::CreateVariable {
+                    var: arg.clone(),
+                    arg: true,
+                    span: arg.span.clone(),
+                }),
+        );
     }
 }

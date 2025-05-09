@@ -89,7 +89,11 @@ impl<'a> Display for MIRFunction<'a> {
 impl<'a> Display for MIRStatement<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MIRStatement::CreateVariable(var, span) => {
+            MIRStatement::CreateVariable {
+                var,
+                span,
+                arg: _arg,
+            } => {
                 write!(f, "let {}: {};", &var.name, &var.ty)?;
 
                 if f.alternate() {

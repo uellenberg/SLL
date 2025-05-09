@@ -110,7 +110,7 @@ macro_rules! explore_recurse {
             MIRStatement::FunctionCall { .. } => {}
             MIRStatement::Goto { .. } => {}
             MIRStatement::Label { .. } => {}
-            MIRStatement::CreateVariable(..) => {}
+            MIRStatement::CreateVariable { .. } => {}
             MIRStatement::DropVariable(..) => {}
             MIRStatement::GotoNotEqual { .. } => {}
             MIRStatement::ContinueStatement { .. } => {}
@@ -199,7 +199,7 @@ impl<Data: Clone + Default> StatementExplorer<Data> {
             MIRStatement::BreakStatement { .. } => {}
             MIRStatement::LoopStatement { .. } => {}
 
-            MIRStatement::CreateVariable(var, ..) => {
+            MIRStatement::CreateVariable { var, .. } => {
                 scope.variables.insert(var.name.clone(), var.clone());
                 scope.to_drop.push(var.clone());
             }

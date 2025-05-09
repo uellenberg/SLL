@@ -158,7 +158,7 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
         &|statement, scope| {
             match statement {
                 // No expressions.
-                MIRStatement::CreateVariable(..) => {}
+                MIRStatement::CreateVariable { .. } => {}
                 MIRStatement::DropVariable(..) => {}
                 MIRStatement::Goto { .. } => {}
                 MIRStatement::Label { .. } => {}

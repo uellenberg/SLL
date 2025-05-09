@@ -11,7 +11,7 @@ mod type_check;
 
 use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
-use crate::mir::function::resolve_fn_to_vars;
+use crate::mir::function::{insert_fn_arg_args, resolve_fn_to_vars};
 use crate::mir::if_statement::flatten_ifs;
 use crate::mir::label::rename_labels;
 use crate::mir::loop_statement::flatten_loops;
@@ -36,9 +36,11 @@ pub struct MIRContext<'a> {
 /// optimizations, returning
 /// whether it was successful.
 pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
-    if !resolve_fn_to_vars(ctx) {
-        return false;
-    }
+    insert_fn_arg_args(ctx);
+
+    // Args now exist as phantom variables.
+
+    resolve_fn_to_vars(ctx);
 
     // Functions now have correct indirect/direct markers.
 
@@ -63,7 +65,8 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
 
     drop_at_scope_end(ctx);
 
-    // All variables are now dropped.
+    // All variables are now dropped, including
+    // arg variables.
 
     flatten_loops(ctx);
 
@@ -194,7 +197,20 @@ pub struct MIRVariable<'a> {
 #[derive(Debug, Clone)]
 pub enum MIRStatement<'a> {
     /// Creates a new variable.
-    CreateVariable(MIRVariable<'a>, Span<'a>),
+    CreateVariable {
+        /// The variable to create.
+        var: MIRVariable<'a>,
+
+        /// This is used for function arguments,
+        /// to allow them to be analyzed the same
+        /// way as normal variables.
+        /// Arg variables aren't lowered to IR.
+        arg: bool,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
 
     /// Drops the value stored
     /// inside a variable and

@@ -57,9 +57,17 @@ fn lower_variable<'a>(mir_variable: &MIRVariable<'a>) -> IRVariable<'a> {
 }
 
 /// Converts MIRStatement to IRStatement.
-fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
-    match mir_statement {
-        MIRStatement::CreateVariable(mir_var, ..) => {
+fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> Option<IRStatement<'a>> {
+    Some(match mir_statement {
+        MIRStatement::CreateVariable {
+            var: mir_var, arg, ..
+        } => {
+            // Args aren't actual variables,
+            // and shouldn't be brought down to IR.
+            if *arg {
+                return None;
+            }
+
             IRStatement::CreateVariable(lower_variable(mir_var))
         }
         MIRStatement::DropVariable(name, ..) => IRStatement::DropVariable(name.clone()),
@@ -76,7 +84,7 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> IRStatement<'a> {
             condition: lower_expression(condition),
         },
         other => panic!("Unhandled statement during MIR lowering: {other:?}"),
-    }
+    })
 }
 
 /// Lowers simple MIRExpressions to IRLoadOp.
@@ -414,7 +422,7 @@ fn lower_function<'a>(mir_function: &MIRFunction<'a>) -> IRFunction<'a> {
 
     let ir_args = mir_function.args.iter().map(lower_variable).collect();
 
-    let ir_body = mir_function.body.iter().map(lower_statement).collect();
+    let ir_body = mir_function.body.iter().flat_map(lower_statement).collect();
 
     IRFunction {
         name: mir_function.name.clone(),
