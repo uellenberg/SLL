@@ -1,6 +1,7 @@
 use crate::mir::scope::StatementExplorer;
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFnCall, MIRStatement,
+    MIRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -56,7 +57,13 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
                     | MIRStatement::GotoNotEqual {
                         condition: value, ..
                     } => {
-                        *value = reduce_expr_simple(&ctx.program.constants, &value.clone());
+                        *value = reduce_expr_simple(&ctx.program.constants, &value);
+                    }
+
+                    MIRStatement::FunctionCall(MIRFnCall { args, .. }) => {
+                        for arg in args {
+                            *arg = reduce_expr_simple(&ctx.program.constants, &arg);
+                        }
                     }
                 }
 
@@ -308,6 +315,23 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                             name,
                             span,
                         }
+                    }
+
+                    MIRStatement::FunctionCall(fn_data) => {
+                        let mut new_args = vec![];
+
+                        for arg in fn_data.args.into_iter() {
+                            new_args.push(split_expr_to_locals(
+                                &arg, &mut pre, &mut post, &local_idx, true,
+                            ));
+                        }
+
+                        MIRStatement::FunctionCall(MIRFnCall {
+                            source: fn_data.source,
+                            args: new_args,
+                            ret_ty: fn_data.ret_ty,
+                            span: fn_data.span,
+                        })
                     }
                 };
 

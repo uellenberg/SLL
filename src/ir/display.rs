@@ -2,6 +2,7 @@ use crate::ir::{
     IRBinaryOperation, IRConstant, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary, IRProgram,
     IRStatement, IRStatic, IRType,
 };
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 
 impl<'a> Display for IRProgram<'a> {
@@ -159,6 +160,15 @@ impl<'a> Display for IRType<'a> {
         match self {
             IRType::U32 => write!(f, "u32"),
             IRType::Bool => write!(f, "bool"),
+            IRType::FunctionPtr(args, ret) => write!(
+                f,
+                "fn({}) -> {}",
+                args.iter()
+                    .cloned()
+                    .map(|v| format!("{}", v))
+                    .collect::<String>(),
+                ret
+            ),
             IRType::Named(name) => write!(f, "{}", name),
         }
     }

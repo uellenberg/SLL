@@ -213,13 +213,16 @@ pub enum IRBinaryOperation {
 }
 
 /// The type of data a variable represents.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IRType<'a> {
     /// Unsigned 32-bit integer.
     U32,
 
     /// Boolean value.
     Bool,
+
+    /// A function pointer, args -> return value.
+    FunctionPtr(Vec<IRType<'a>>, Box<IRType<'a>>),
 
     /// A named type (struct).
     Named(Cow<'a, str>),

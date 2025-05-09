@@ -2,8 +2,8 @@ pub mod file_cache;
 pub mod span;
 
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFunction, MIRStatement,
-    MIRStatic, MIRType, MIRTypeInner, MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFnCall, MIRFnSource,
+    MIRFunction, MIRStatement, MIRStatic, MIRType, MIRTypeInner, MIRVariable,
 };
 use ariadne::{ColorGenerator, Label, Report, ReportKind};
 use pest::Parser;
@@ -247,6 +247,40 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                     span,
                 });
             }
+            Rule::functionCallDirect => {
+                let mut data = pair.into_inner();
+
+                let name_data = data.next().unwrap();
+                let name = name_data.as_str();
+                let args = data
+                    .next()
+                    .map_or(vec![], |args| parse_function_call_args(location, args));
+
+                body.push(MIRStatement::FunctionCall(MIRFnCall {
+                    source: MIRFnSource::Direct(
+                        Cow::Borrowed(name),
+                        to_span(location, name_data.as_span()),
+                    ),
+                    args,
+                    ret_ty: None,
+                    span,
+                }));
+            }
+            Rule::functionCallIndirect => {
+                let mut data = pair.into_inner();
+
+                let ptr = parse_expression(location, data.next().unwrap());
+                let args = data
+                    .next()
+                    .map_or(vec![], |args| parse_function_call_args(location, args));
+
+                body.push(MIRStatement::FunctionCall(MIRFnCall {
+                    source: MIRFnSource::Indirect(ptr),
+                    args,
+                    ret_ty: None,
+                    span,
+                }));
+            }
             Rule::ifStatement => {
                 body.push(parse_if_statement(location, pair));
             }
@@ -313,7 +347,7 @@ fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
         let span = to_span(location, pair.as_span());
 
         match pair.as_rule() {
-            Rule::functionArgs => {
+            Rule::functionArg => {
                 let mut data = pair.into_inner();
 
                 let identifier = data.next().unwrap().as_str();
@@ -330,6 +364,28 @@ fn parse_function_args<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
     }
 
     args
+}
+
+fn parse_function_call_args<'a>(
+    location: &'a Path,
+    value: Pair<'a, Rule>,
+) -> Vec<MIRExpression<'a>> {
+    assert_eq!(value.as_rule(), Rule::functionCallArgs);
+
+    let mut exprs = vec![];
+
+    for pair in value.into_inner() {
+        let span = to_span(location, pair.as_span());
+
+        match pair.as_rule() {
+            Rule::expression => {
+                exprs.push(parse_expression(location, pair));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    exprs
 }
 
 fn parse_expression<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression<'a> {

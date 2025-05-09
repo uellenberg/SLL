@@ -1,4 +1,4 @@
-use crate::mir::{MIRStatement, MIRVariable};
+use crate::mir::{MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -107,6 +107,7 @@ macro_rules! explore_recurse {
         match $statement {
             // Doesn't include sub blocks.
             MIRStatement::SetVariable { .. } => {}
+            MIRStatement::FunctionCall { .. } => {}
             MIRStatement::Goto { .. } => {}
             MIRStatement::Label { .. } => {}
             MIRStatement::CreateVariable(..) => {}
@@ -189,6 +190,7 @@ impl<Data: Clone + Default> StatementExplorer<Data> {
         match statement {
             // Doesn't create / drop variables.
             MIRStatement::SetVariable { .. } => {}
+            MIRStatement::FunctionCall { .. } => {}
             MIRStatement::IfStatement { .. } => {}
             MIRStatement::Goto { .. } => {}
             MIRStatement::Label { .. } => {}
@@ -345,4 +347,69 @@ impl<Data: Clone + Default> StatementExplorer<Data> {
 
         true
     }
+}
+
+/// Explores each subexpression in a larger expression.
+/// pre_run runs on the original expression, and occurs
+/// before recursing.
+pub fn explore_expression_mut<'a>(
+    expr: &mut MIRExpression<'a>,
+    pre_run: &mut impl FnMut(&mut MIRExpression<'a>) -> bool,
+) -> bool {
+    if !pre_run(expr) {
+        return false;
+    }
+
+    macro_rules! simple_binary {
+        ($left:expr, $right:expr) => {
+            explore_expression_mut($left, pre_run);
+            explore_expression_mut($right, pre_run);
+        };
+    }
+
+    match &mut expr.inner {
+        MIRExpressionInner::Add(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Sub(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Mul(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Div(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Equal(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::NotEqual(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Less(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::Greater(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::LessEq(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::GreaterEq(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::BoolAnd(left, right) => {
+            simple_binary!(left, right);
+        }
+        MIRExpressionInner::BoolOr(left, right) => {
+            simple_binary!(left, right);
+        }
+
+        // No expressions.
+        MIRExpressionInner::Number(_)
+        | MIRExpressionInner::Bool(_)
+        | MIRExpressionInner::Variable(_) => {}
+    }
+
+    true
 }

@@ -13,7 +13,7 @@ mod parser;
 fn main() {
     let mut mir_ctx = MIRContext::default();
 
-    if !parse_file("./test/loop.sll".as_ref(), &mut mir_ctx) {
+    if !parse_file("./test/function.sll".as_ref(), &mut mir_ctx) {
         return;
     }
 

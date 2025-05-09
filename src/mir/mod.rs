@@ -1,6 +1,7 @@
 mod display;
 mod drop;
 mod expr;
+mod function;
 mod if_statement;
 mod label;
 mod loop_statement;
@@ -10,6 +11,7 @@ mod type_check;
 
 use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
+use crate::mir::function::resolve_fn_to_vars;
 use crate::mir::if_statement::flatten_ifs;
 use crate::mir::label::rename_labels;
 use crate::mir::loop_statement::flatten_loops;
@@ -34,6 +36,12 @@ pub struct MIRContext<'a> {
 /// optimizations, returning
 /// whether it was successful.
 pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
+    if !resolve_fn_to_vars(ctx) {
+        return false;
+    }
+
+    // Functions now have correct indirect/direct markers.
+
     if !type_check(ctx) {
         return false;
     }
@@ -206,6 +214,9 @@ pub enum MIRStatement<'a> {
         span: Span<'a>,
     },
 
+    /// Calls a function, ignoring its return value.
+    FunctionCall(MIRFnCall<'a>),
+
     /// A label that can be jumped to.
     Label {
         /// The label's name.
@@ -376,6 +387,9 @@ pub enum MIRTypeInner<'a> {
     /// Unit type (void).
     Unit,
 
+    /// A function pointer, args -> return value.
+    FunctionPtr(Vec<MIRTypeInner<'a>>, Box<MIRTypeInner<'a>>),
+
     /// A named type (struct).
     Named(Cow<'a, str>),
 }
@@ -386,7 +400,49 @@ impl<'a> From<MIRTypeInner<'a>> for Cow<'a, str> {
             MIRTypeInner::U32 => Cow::Borrowed("u32"),
             MIRTypeInner::Unit => Cow::Borrowed("()"),
             MIRTypeInner::Bool => Cow::Borrowed("bool"),
+            MIRTypeInner::FunctionPtr(args, ret) => Cow::Owned(format!(
+                "fn({}) -> {}",
+                args.iter()
+                    .cloned()
+                    .map(|v| v.into())
+                    .intersperse(Cow::Borrowed(", "))
+                    .collect::<String>(),
+                ret
+            )),
             MIRTypeInner::Named(val) => val,
         }
     }
+}
+
+/// A function call.
+#[derive(Debug, Clone)]
+pub struct MIRFnCall<'a> {
+    /// The source for the function (name or ptr).
+    pub source: MIRFnSource<'a>,
+
+    /// The function's arguments.
+    pub args: Vec<MIRExpression<'a>>,
+
+    /// The function's return type,
+    /// if known at the time.
+    pub ret_ty: Option<MIRType<'a>>,
+
+    /// A span representing the entire function call.
+    pub span: Span<'a>,
+}
+
+/// The source for a function pointer
+/// when performing a function call.
+#[derive(Debug, Clone)]
+pub enum MIRFnSource<'a> {
+    /// A direct function call, containing
+    /// the name of the function to call.
+    Direct(Cow<'a, str>, Span<'a>),
+
+    /// An indirect function call, meaning
+    /// the function pointer is stored in
+    /// a variable.
+    /// Contains the name of the variable
+    /// storing the pointer.
+    Indirect(MIRExpression<'a>),
 }

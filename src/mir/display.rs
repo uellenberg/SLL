@@ -1,6 +1,6 @@
 use crate::mir::{
-    MIRConstant, MIRExpression, MIRExpressionInner, MIRFunction, MIRProgram, MIRStatement,
-    MIRStatic, MIRType, MIRTypeInner,
+    MIRConstant, MIRExpression, MIRExpressionInner, MIRFnCall, MIRFnSource, MIRFunction,
+    MIRProgram, MIRStatement, MIRStatic, MIRType, MIRTypeInner,
 };
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter, Pointer};
@@ -111,6 +111,9 @@ impl<'a> Display for MIRStatement<'a> {
                 if f.alternate() {
                     writeln!(f, " /* {span} */")?;
                 }
+            }
+            MIRStatement::FunctionCall(fn_call) => {
+                fn_call.fmt(f)?;
             }
             MIRStatement::Label { name, span, .. } => {
                 write!(f, "label {}:", name)?;
@@ -238,6 +241,34 @@ impl<'a> Display for MIRTypeInner<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let type_name: Cow<'_, str> = self.clone().into();
         write!(f, "{}", type_name)
+    }
+}
+
+impl<'a> Display for MIRFnCall<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", &self.source)?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ");")?;
+
+        if f.alternate() {
+            writeln!(f, " /* {} */", &self.span)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> Display for MIRFnSource<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MIRFnSource::Direct(name, _span) => write!(f, "{name}"),
+            MIRFnSource::Indirect(expr) => write!(f, "{}", expr),
+        }
     }
 }
 

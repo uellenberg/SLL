@@ -39,6 +39,10 @@ fn lower_type<'a>(mir_type: &MIRTypeInner<'a>) -> IRType<'a> {
     match mir_type {
         MIRTypeInner::U32 => IRType::U32,
         MIRTypeInner::Bool => IRType::Bool,
+        MIRTypeInner::FunctionPtr(args, ret) => IRType::FunctionPtr(
+            args.iter().map(|v| lower_type(v)).collect(),
+            Box::new(lower_type(ret)),
+        ),
         MIRTypeInner::Unit => unreachable!("Unit type does not exist in IR!"),
         MIRTypeInner::Named(val) => IRType::Named(val.clone()),
     }

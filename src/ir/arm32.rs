@@ -542,6 +542,7 @@ fn lower_type(ir_type: &IRType) -> TypeData {
     match ir_type {
         IRType::U32 => TypeData { size: 4, align: 4 },
         IRType::Bool => TypeData { size: 1, align: 1 },
+        IRType::FunctionPtr(_, _) => TypeData { size: 4, align: 4 },
         IRType::Named(val) => todo!(),
     }
 }

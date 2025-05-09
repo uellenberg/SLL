@@ -22,20 +22,22 @@ functionDeclaration = {
 }
 
 functionArgs = {
-    functionArg ~ "," ~ functionArg* ~ ","?
+    functionArg ~ ("," ~ functionArg)* ~ ","?
 }
+
+functionArg = { identifier ~ ":" ~ variableType }
 
 functionReturn = {
     "->" ~ variableType
 }
-
-functionArg = { identifier ~ ":" ~ variableType }
 
 functionBody = { functionStatement+ }
 
 functionStatement = _{
     createSetVariable
     | createVariable
+    | functionCallDirect
+    | functionCallIndirect
     | ifStatement
     | loopStatement
     | continueStatement
@@ -48,6 +50,14 @@ createVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ ";" }
 createSetVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ expression ~ ";" }
 
 setVariable = { identifier ~ "=" ~ expression ~ ";" }
+
+functionCallDirect = { identifier ~ "(" ~ functionCallArgs? ~ ")" ~ ";"  }
+
+functionCallIndirect = { expression ~ "(" ~ functionCallArgs? ~ ")" ~ ";"  }
+
+functionCallArgs = {
+    expression ~ ("," ~ expression)* ~ ","?
+}
 
 ifStatement = {
     "if" ~

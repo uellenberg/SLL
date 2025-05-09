@@ -1,0 +1,7 @@
+function main() {
+    other(10);
+}
+
+function other(test: u32) -> u32 {
+    let ret: u32 = 10 + test;
+}
