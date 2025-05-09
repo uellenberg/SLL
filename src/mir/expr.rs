@@ -1,7 +1,7 @@
 use crate::mir::scope::StatementExplorer;
 use crate::mir::{
-    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFnCall, MIRStatement,
-    MIRVariable,
+    MIRConstant, MIRContext, MIRExpression, MIRExpressionInner, MIRFnCall, MIRFnSource,
+    MIRStatement, MIRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -318,6 +318,14 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                     }
 
                     MIRStatement::FunctionCall(fn_data) => {
+                        let mut new_source = match fn_data.source {
+                            // No expressions.
+                            val @ MIRFnSource::Direct(_, _) => val,
+                            MIRFnSource::Indirect(expr) => MIRFnSource::Indirect(
+                                split_expr_to_locals(&expr, &mut pre, &mut post, &local_idx, true),
+                            ),
+                        };
+
                         let mut new_args = vec![];
 
                         for arg in fn_data.args.into_iter() {
@@ -327,7 +335,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                         }
 
                         MIRStatement::FunctionCall(MIRFnCall {
-                            source: fn_data.source,
+                            source: new_source,
                             args: new_args,
                             ret_ty: fn_data.ret_ty,
                             span: fn_data.span,
