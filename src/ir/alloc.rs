@@ -243,7 +243,7 @@ pub struct StackAllocator<'a> {
     /// A map of live variable names
     /// to their stack position and
     /// size.
-    variables: HashMap<Cow<'a, str>, (u32, TypeData)>,
+    variables: HashMap<Cow<'a, str>, (i32, TypeData)>,
 }
 
 impl<'a> StackAllocator<'a> {
@@ -262,7 +262,7 @@ impl<'a> StackAllocator<'a> {
 
     /// Allocates a new variable, returning its
     /// stack offset.
-    pub fn create(&mut self, name: Cow<'a, str>, type_data: TypeData) -> u32 {
+    pub fn create(&mut self, name: Cow<'a, str>, type_data: TypeData) -> i32 {
         assert!(type_data.align.is_power_of_two());
 
         // There's no way for us to statically get a higher
@@ -291,8 +291,8 @@ impl<'a> StackAllocator<'a> {
             }
 
             // We found a valid spot.
-            self.write_var(start as u32, name, type_data);
-            return start as u32;
+            self.write_var(start as i32, name, type_data);
+            return start as i32;
         }
 
         // No space was found.
@@ -307,9 +307,9 @@ impl<'a> StackAllocator<'a> {
         // valid items (e.g., len() - 2 gives 2 valid items).
         let pos = self.blocks.len() as u32 - type_data.size;
 
-        self.write_var(pos, name, type_data);
+        self.write_var(pos as i32, name, type_data);
 
-        pos
+        pos as i32
     }
 
     /// Deallocates the given variable,
@@ -320,7 +320,7 @@ impl<'a> StackAllocator<'a> {
         };
 
         // start..(start + size)
-        for i in (var.0)..(var.0 + var.1.size) {
+        for i in (var.0)..(var.0 + var.1.size as i32) {
             self.blocks[i as usize] = false;
         }
 
@@ -345,16 +345,32 @@ impl<'a> StackAllocator<'a> {
     }
 
     /// Gets the stack position of a certain variable.
-    pub fn get(&self, name: &Cow<'a, str>) -> Option<(u32, TypeData)> {
+    pub fn get(&self, name: &Cow<'a, str>) -> Option<(i32, TypeData)> {
         self.variables.get(name).copied()
     }
 
     /// Creates a variable at the specified position.
-    fn write_var(&mut self, pos: u32, name: Cow<'a, str>, type_data: TypeData) {
-        for i in pos..(pos + type_data.size) {
+    fn write_var(&mut self, pos: i32, name: Cow<'a, str>, type_data: TypeData) {
+        for i in pos..(pos + type_data.size as i32) {
             self.blocks[i as usize] = true;
         }
 
+        self.assign_var(name, pos, type_data);
+    }
+
+    /// Assigns a variable to a specific stack position,
+    /// without checking for validity.
+    ///
+    /// This should only be used to for arguments,
+    /// or when validity has been checked AND the
+    /// variable's blocks have been marked as used.
+    ///
+    /// This can be used to create variables BEFORE
+    /// the start of the stack, using a negative stack
+    /// offset
+    ///
+    /// Panics if the variable already exists.
+    pub fn assign_var(&mut self, name: Cow<'a, str>, pos: i32, type_data: TypeData) {
         if !self.variables.insert(name, (pos, type_data)).is_none() {
             panic!("write_var overrode a variable!");
         }

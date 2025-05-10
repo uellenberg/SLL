@@ -170,7 +170,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
 
             ctx.push_instruction(
                 "LDRB".into(),
-                format!("{}, [FP, #-{}]", temp.name(), offset + stack.0),
+                format!("{}, [FP, #-{}]", temp.name(), offset as i32 + stack.0),
             );
 
             return RegMaybeTemporary::Temporary([temp]);
@@ -221,7 +221,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
 
             ctx.push_instruction(
                 "LDR".into(),
-                format!("{}, [FP, #-{}]", temp.name(), offset + stack.0),
+                format!("{}, [FP, #-{}]", temp.name(), offset as i32 + stack.0),
             );
 
             return RegMaybeTemporary::Temporary([temp]);
@@ -385,7 +385,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         if let Some(stack) = self.stack_alloc.get(name) {
             ctx.push_instruction(
                 "STRB".into(),
-                format!("{}, [FP, #-{}]", from_reg_name, offset + stack.0),
+                format!("{}, [FP, #-{}]", from_reg_name, offset as i32 + stack.0),
             );
 
             return;
@@ -448,7 +448,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         if let Some(stack) = self.stack_alloc.get(name) {
             ctx.push_instruction(
                 "STR".into(),
-                format!("{}, [FP, #-{}]", from_reg_name, offset + stack.0),
+                format!("{}, [FP, #-{}]", from_reg_name, offset as i32 + stack.0),
             );
 
             return;
@@ -1193,7 +1193,7 @@ fn lower_statement<'a>(
 
                 for (reg, size) in var_ty.regs() {
                     ctx.push_instruction("STR".into(), format!("{}, [FP, #-{}]", reg, write_start));
-                    write_start += size;
+                    write_start += size as i32;
                 }
             }
 
@@ -1263,7 +1263,7 @@ fn lower_statement<'a>(
                         format!(
                             "{}, [SP, #-{}]",
                             data_reg.names()[0],
-                            new_stack_offset + stack_loc.0
+                            new_stack_offset as i32 + stack_loc.0
                         ),
                     );
 
@@ -1319,7 +1319,7 @@ fn lower_statement<'a>(
 
                 for (reg, size) in reg.regs() {
                     ctx.push_instruction("LDR".into(), format!("{}, [FP, #-{}]", reg, read_start));
-                    read_start += size;
+                    read_start += size as i32;
                 }
             }
 
