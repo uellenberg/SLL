@@ -321,6 +321,13 @@ impl<'a> StackAllocator<'a> {
 
         // start..(start + size)
         for i in (var.0)..(var.0 + var.1.size as i32) {
+            // Negative offsets aren't allocated,
+            // but assigned, so we can't do anything
+            // with them.
+            if i < 0 {
+                continue;
+            }
+
             self.blocks[i as usize] = false;
         }
 

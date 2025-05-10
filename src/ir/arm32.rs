@@ -575,7 +575,10 @@ fn lower_static<'a>(ctx: &mut Arm32Context, ir_static: &IRStatic<'a>) {
 
 /// Sets up a stack allocator with
 /// function arguments.
-fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>]) {
+/// pre_alloc is the number of bytes
+/// pushed into the stack initially,
+/// before setting FP to SP.
+fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>], pre_alloc: u32) {
     let regs: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
     let mut cur_reg = 0;
 
@@ -585,16 +588,22 @@ fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>]) {
         }
 
         if cur_reg >= regs.len() {
+            // TODO: Proper location.
+            alloc
+                .stack_alloc
+                .assign_var(arg.name.clone(), 0, lower_type(&arg.ty));
             // todo!();
+        } else {
+            let count = alloc.reg_alloc.take_registers([regs[cur_reg]]).len();
+            assert_eq!(count, 0);
+
+            alloc.reg_alloc.register_variable(
+                arg.name.clone(),
+                [regs[cur_reg]],
+                lower_type(&arg.ty),
+            );
+            cur_reg += 1;
         }
-
-        let count = alloc.reg_alloc.take_registers([regs[cur_reg]]).len();
-        assert_eq!(count, 0);
-
-        alloc
-            .reg_alloc
-            .register_variable(arg.name.clone(), [regs[cur_reg]], lower_type(&arg.ty));
-        cur_reg += 1;
     }
 }
 
@@ -644,7 +653,7 @@ fn lower_function<'a>(
         statics,
     };
 
-    alloc_args(&mut alloc, &ir_function.args);
+    alloc_args(&mut alloc, &ir_function.args, 0);
 
     for statement in &ir_function.body {
         lower_statement(&mut dummy_ctx, &mut alloc, statement);
@@ -668,6 +677,9 @@ fn lower_function<'a>(
         // the number even.
         saved_regs.push("R0");
     }
+
+    // Each register is 4 bytes.
+    let pre_alloc_size = saved_regs.len() * 4;
 
     let saved_regs = saved_regs.into_iter().intersperse(", ").collect::<String>();
 
@@ -700,7 +712,7 @@ fn lower_function<'a>(
     // The reason this is done twice is that
     // args are dropped when calling lower_statement,
     // so need to be re-added.
-    alloc_args(&mut alloc, &ir_function.args);
+    alloc_args(&mut alloc, &ir_function.args, pre_alloc_size as u32);
 
     for statement in &ir_function.body {
         lower_statement(ctx, &mut alloc, statement);
@@ -1231,7 +1243,10 @@ fn lower_statement<'a>(
             let mut arg_stack_alloc = StackAllocator::new(8, 4);
 
             // Args need to be added onto the stack in reverse order.
-            for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+            // However, because args are allocated in front of the current
+            // stack, this has the effect of reversing their position, so we
+            // don't need to manually reverse here.
+            for (i, stack_arg) in stack_args.iter().enumerate() {
                 arg_stack_alloc.create(Cow::Owned(i.to_string()), lower_type(&stack_arg.1));
             }
 
