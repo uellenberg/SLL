@@ -353,6 +353,9 @@ impl<'a> StackAllocator<'a> {
 /// Used to allocate variables onto
 /// registers.
 pub struct RegisterAllocator<'a> {
+    /// Register name -> size (in bytes).
+    register_sizes: HashMap<&'static str, u32>,
+
     /// A list of available registers
     /// and their size (in bytes),
     /// ordered by size in descending
@@ -386,10 +389,11 @@ impl<'a> RegisterAllocator<'a> {
     /// min_available is the minimum number of registers
     /// that need to be maintained for temporary allocations.
     pub fn new(
-        available_registers: impl IntoIterator<Item = (&'static str, u32)>,
+        available_registers: impl IntoIterator<Item = (&'static str, u32)> + Clone,
         min_available: u32,
     ) -> Self {
         Self {
+            register_sizes: available_registers.clone().into_iter().collect(),
             available_regs: available_registers.into_iter().collect(),
             variables: HashMap::new(),
             used_regs: HashSet::new(),
@@ -403,11 +407,86 @@ impl<'a> RegisterAllocator<'a> {
         self.used_regs.iter().copied()
     }
 
+    /// Removes the specified registers from the pool
+    /// of available registers.
+    ///
+    /// If the register is currently in use, this won't
+    /// do anything to it.
+    /// However, it will return a list of the names of
+    /// all the variables that need to be dropped
+    /// to take the remaining registers.
+    pub fn take_registers(
+        &mut self,
+        registers: impl IntoIterator<Item = &'static str>,
+    ) -> Vec<Cow<'a, str>> {
+        let registers: HashSet<&'static str> = registers.into_iter().collect();
+        let mut used_reg_vars = vec![];
+
+        // Find variables using one of the given registers.
+        for (name, alloc) in &self.variables {
+            for (reg, _) in &alloc.regs {
+                if registers.contains(reg) {
+                    used_reg_vars.push(name.clone());
+                    break;
+                }
+            }
+        }
+
+        // Remove registers from the available pool.
+        self.available_regs
+            .retain(|(reg, _)| !registers.contains(reg));
+
+        // Track used registers.
+        for reg in registers {
+            self.used_regs.insert(reg);
+        }
+
+        self.sort_available_regs();
+        used_reg_vars
+    }
+
+    /// Adds the given registers back
+    /// to the pool of available registers.
+    ///
+    /// This MUST be used in combination with
+    /// take_registers, and only when you can
+    /// guarantee that the given register isn't
+    /// being used by a variable.
+    pub fn return_registers(&mut self, registers: impl IntoIterator<Item = &'static str>) {
+        let registers: HashSet<&'static str> = registers.into_iter().collect();
+
+        #[cfg(debug_assertions)]
+        {
+            // Ensure that no variable is using one of
+            // these registers.
+            for (name, alloc) in &self.variables {
+                for (reg, _) in &alloc.regs {
+                    if registers.contains(reg) {
+                        panic!(
+                            "Improper return_registers usage detected: register {reg} is in use by {name}!"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Add back to the available pool.
+        self.available_regs.extend(
+            registers
+                .into_iter()
+                .map(|reg| (reg, self.register_sizes[reg])),
+        );
+
+        self.sort_available_regs();
+    }
+
     /// Registers a new variable bound
     /// to the given registers.
     ///
-    /// These registers must be available, or
-    /// else this function will panic!
+    /// This MUST be used in combination with
+    /// take_registers.
+    /// Once registers are taken, they can be
+    /// used here to manually create a variable.
     ///
     /// This should only be used to create
     /// variable bindings for registers that
@@ -419,16 +498,27 @@ impl<'a> RegisterAllocator<'a> {
         registers: impl IntoIterator<Item = &'static str>,
         ty: TypeData,
     ) {
-        let mut regs = vec![];
+        let registers: HashSet<&'static str> = registers.into_iter().collect();
 
-        for reg in registers.into_iter() {
-            regs.push(
-                self.remove_reg(reg)
-                    .expect("register_variable tried to get an unavailable register!"),
-            );
-
-            self.used_regs.insert(reg);
+        #[cfg(debug_assertions)]
+        {
+            // Ensure that no variable is using one of
+            // these registers.
+            for (name, alloc) in &self.variables {
+                for (reg, _) in &alloc.regs {
+                    if registers.contains(reg) {
+                        panic!(
+                            "Improper register_variable usage detected: register {reg} is in use by {name}!"
+                        );
+                    }
+                }
+            }
         }
+
+        let regs = registers
+            .into_iter()
+            .map(|reg| (reg, self.register_sizes[reg]))
+            .collect();
 
         if !self
             .variables
@@ -632,6 +722,7 @@ impl<'a> RegisterAllocator<'a> {
 
 /// An allocation spanning one or
 /// more registers.
+#[derive(Debug, Clone)]
 pub struct RegisterAllocation {
     /// A list of the registers
     /// containing this allocation,
@@ -713,6 +804,12 @@ impl RegisterAllocation {
     /// stored in this allocation.
     pub fn ty(&self) -> TypeData {
         self.ty
+    }
+
+    /// Returns the registers stored in this
+    /// allocation, along with their byte size.
+    pub fn regs(&self) -> impl Iterator<Item = (&'static str, u32)> {
+        self.regs.iter().copied()
     }
 }
 

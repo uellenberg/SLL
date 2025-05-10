@@ -447,6 +447,8 @@ fn split_expr_to_locals<'a>(
         MIRExpressionInner::BoolOr(left, right) => {
             simple_binary!(left, right, MIRExpressionInner::BoolOr)
         }
+        // TODO: When you add function calls here, you MUST
+        //       ensure that needs_var = true.
         // Primitive expressions don't need variables.
         MIRExpressionInner::Variable(val) => (MIRExpressionInner::Variable(val.clone()), false),
         MIRExpressionInner::Number(val) => (MIRExpressionInner::Number(*val), false),

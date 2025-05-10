@@ -152,6 +152,9 @@ pub enum IRLoadUnary<'a> {
     /// A variable.
     Variable(Cow<'a, str>),
 
+    /// A reference to a variable.
+    Reference(Cow<'a, str>),
+
     /// A number literal.
     Num(i64),
 }
@@ -227,6 +230,9 @@ pub enum IRType<'a> {
     /// A function pointer, args -> return value.
     FunctionPtr(Vec<IRType<'a>>, Box<IRType<'a>>),
 
+    /// A pointer to a type.
+    Ptr(Box<IRType<'a>>),
+
     /// A named type (struct).
     Named(Cow<'a, str>),
 }
@@ -237,8 +243,8 @@ pub struct IRFnCall<'a> {
     /// The source for the function (name or ptr).
     pub source: IRFnSource<'a>,
 
-    /// The function's arguments.
-    pub args: Vec<IRLoadOp<'a>>,
+    /// The function's arguments as (value, arg)[].
+    pub args: Vec<(IRLoadOp<'a>, IRType<'a>)>,
 
     /// The function's return type.
     /// None if it doesn't return

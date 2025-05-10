@@ -123,6 +123,7 @@ impl<'a> Display for IRLoadUnary<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             IRLoadUnary::Variable(name) => write!(f, "{}", name),
+            IRLoadUnary::Reference(name) => write!(f, "&{}", name),
             IRLoadUnary::Num(val) => write!(f, "{}", val),
         }
     }
@@ -171,6 +172,7 @@ impl<'a> Display for IRType<'a> {
                     .collect::<String>(),
                 ret
             ),
+            IRType::Ptr(ty) => write!(f, "&{}", ty),
             IRType::Named(name) => write!(f, "{}", name),
         }
     }
@@ -183,7 +185,7 @@ impl<'a> Display for IRFnCall<'a> {
             if i != 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", arg)?;
+            write!(f, "{}", arg.0)?;
         }
         write!(f, ");")?;
 

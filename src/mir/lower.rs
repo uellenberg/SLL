@@ -447,7 +447,15 @@ fn lower_fn_call<'a>(mir_fn_call: &MIRFnCall<'a>) -> IRFnCall<'a> {
         args: mir_fn_call
             .args
             .iter()
-            .map(|arg| lower_expression(arg))
+            // Unit arguments don't exist at
+            // the IR level.
+            .filter(|arg| arg.ty.as_ref().unwrap().ty != MIRTypeInner::Unit)
+            .map(|arg| {
+                (
+                    lower_expression(arg),
+                    lower_type(&arg.ty.as_ref().unwrap().ty),
+                )
+            })
             .collect(),
         // Unit means no return.
         ret_ty: match &mir_fn_call.ret_ty.as_ref().unwrap().ty {
