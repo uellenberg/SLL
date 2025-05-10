@@ -672,35 +672,10 @@ fn lower_function<'a>(
     // Setup new FP.
     ctx.push_instruction("MOV".into(), "FP, SP".into());
 
-    // Stack requires 8-byte alignment, and an offset
-    // of 4 for the old FP (currently, FP points to the old FP).
-    //
-    // Since this is just used for counting, we don't need
-    // to set it up with the args, as they'll always be behind
-    // the FP.
-    let mut stack_alloc = StackAllocator::new(8, 4);
-
-    // We need to give the stack allocator data
-    // before it can continue.
-    for statement in &ir_function.body {
-        match statement {
-            IRStatement::CreateVariable(var) => {
-                let ty_info = lower_type(&var.ty);
-
-                stack_alloc.create(var.name.clone(), ty_info);
-            }
-            IRStatement::DropVariable(name) => {
-                stack_alloc.drop(name);
-            }
-            // We only care about variables here.
-            _ => {}
-        }
-    }
-
     // Set stack directly to maximum instead of push/pop.
     ctx.push_instruction(
         "SUB".into(),
-        format!("SP, SP, #{}", stack_alloc.stack_size().to_string()),
+        format!("SP, SP, #{}", alloc.stack_alloc.stack_size().to_string()),
     );
 
     // The reason this is done twice is that
