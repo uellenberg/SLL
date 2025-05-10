@@ -7,7 +7,7 @@ use crate::ir::{
     IRProgram, IRStatement, IRStatic, IRType, IRVariable,
 };
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 #[derive(Default, Clone)]
@@ -650,7 +650,15 @@ fn lower_function<'a>(
         lower_statement(&mut dummy_ctx, &mut alloc, statement);
     }
 
-    let saved_regs = alloc.used_regs().intersperse(", ").collect::<String>();
+    let no_save_regs = ["R0", "R1", "R2", "R3"].into_iter().collect::<HashSet<_>>();
+    let saved_regs = alloc
+        .used_regs()
+        // Don't save function calling registers, since
+        // that's the caller's responsibility, not the
+        // callee.
+        .filter(|reg| !no_save_regs.contains(reg))
+        .intersperse(", ")
+        .collect::<String>();
 
     let mut push = "FP, LR".to_string();
     let mut pop = "FP, PC".to_string();
