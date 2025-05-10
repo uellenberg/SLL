@@ -170,7 +170,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
 
             ctx.push_instruction(
                 "LDRB".into(),
-                format!("{}, [FP, #-{}]", temp.name(), offset as i32 + stack.0),
+                format!("{}, [FP, #{}]", temp.name(), -(offset as i32 + stack.0)),
             );
 
             return RegMaybeTemporary::Temporary([temp]);
@@ -188,7 +188,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
                 // TODO: Should this be positive?
                 ctx.push_instruction(
                     "LDRB".into(),
-                    format!("{}, [{}, #-{}]", temp.name(), temp.name(), offset),
+                    format!("{}, [{}, #{}]", temp.name(), temp.name(), -(offset as i32)),
                 );
             }
 
@@ -221,7 +221,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
 
             ctx.push_instruction(
                 "LDR".into(),
-                format!("{}, [FP, #-{}]", temp.name(), offset as i32 + stack.0),
+                format!("{}, [FP, #{}]", temp.name(), -(offset as i32 + stack.0)),
             );
 
             return RegMaybeTemporary::Temporary([temp]);
@@ -239,7 +239,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
                 // TODO: Should this be positive?
                 ctx.push_instruction(
                     "LDR".into(),
-                    format!("{}, [{}, #-{}]", temp.name(), temp.name(), offset),
+                    format!("{}, [{}, #{}]", temp.name(), temp.name(), -(offset as i32)),
                 );
             }
 
@@ -385,7 +385,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         if let Some(stack) = self.stack_alloc.get(name) {
             ctx.push_instruction(
                 "STRB".into(),
-                format!("{}, [FP, #-{}]", from_reg_name, offset as i32 + stack.0),
+                format!("{}, [FP, #{}]", from_reg_name, -(offset as i32 + stack.0)),
             );
 
             return;
@@ -406,7 +406,12 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
                 // TODO: Should this be positive?
                 ctx.push_instruction(
                     "STRB".into(),
-                    format!("{}, [{}, #-{}]", from_reg_name, temp.name(), offset),
+                    format!(
+                        "{}, [{}, #{}]",
+                        from_reg_name,
+                        temp.name(),
+                        -(offset as i32)
+                    ),
                 );
             }
 
@@ -448,7 +453,7 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         if let Some(stack) = self.stack_alloc.get(name) {
             ctx.push_instruction(
                 "STR".into(),
-                format!("{}, [FP, #-{}]", from_reg_name, offset as i32 + stack.0),
+                format!("{}, [FP, #{}]", from_reg_name, -(offset as i32 + stack.0)),
             );
 
             return;
@@ -469,7 +474,12 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
                 // TODO: Should this be positive?
                 ctx.push_instruction(
                     "STR".into(),
-                    format!("{}, [{}, #-{}]", from_reg_name, temp.name(), offset),
+                    format!(
+                        "{}, [{}, #{}]",
+                        from_reg_name,
+                        temp.name(),
+                        -(offset as i32)
+                    ),
                 );
             }
 
@@ -591,7 +601,7 @@ fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>], p
             // TODO: Proper location.
             alloc
                 .stack_alloc
-                .assign_var(arg.name.clone(), 0, lower_type(&arg.ty));
+                .register_variable(0, arg.name.clone(), lower_type(&arg.ty));
             // todo!();
         } else {
             let count = alloc.reg_alloc.take_registers([regs[cur_reg]]).len();
@@ -646,8 +656,8 @@ fn lower_function<'a>(
     let mut dummy_ctx = ctx.clone();
 
     let mut alloc = Arm32Allocator {
-        // Stack requires 8-byte alignment, and an offset
-        // of 4 for the old FP (currently, FP points to the old FP).
+        // Stack requires 8-byte alignment,
+        // and SP contains 4 bytes already allocated.
         stack_alloc: StackAllocator::new(8, 4),
         reg_alloc: RegisterAllocator::new(registers.clone(), 3),
         statics,
@@ -668,18 +678,8 @@ fn lower_function<'a>(
         .filter(|reg| !no_save_regs.contains(reg))
         .collect::<Vec<_>>();
 
-    // We need an even number of registers to ensure
-    // 8-byte alignment of SP, as required by the stack
-    // allocator.
-    if saved_regs.len() % 2 == 1 {
-        // R0 will never exist in saved_regs,
-        // so it's a good candidate to make
-        // the number even.
-        saved_regs.push("R0");
-    }
-
-    // Each register is 4 bytes.
-    let pre_alloc_size = saved_regs.len() * 4;
+    // Each register is 4 bytes, + 8 bytes for FP and LR.
+    let pre_alloc_size = saved_regs.len() * 4 + 8;
 
     let saved_regs = saved_regs.into_iter().intersperse(", ").collect::<String>();
 
@@ -702,6 +702,10 @@ fn lower_function<'a>(
 
     // Setup new FP.
     ctx.push_instruction("MOV".into(), "FP, SP".into());
+
+    // Offset the current stack by the variables
+    // we just pushed.
+    alloc.stack_alloc.set_offset(pre_alloc_size as u32);
 
     // Set stack directly to maximum instead of push/pop.
     let stack_size = alloc.stack_alloc.stack_size();
@@ -1204,7 +1208,7 @@ fn lower_statement<'a>(
                 let mut write_start = alloc.stack_alloc.create(var.clone(), var_ty.ty());
 
                 for (reg, size) in var_ty.regs() {
-                    ctx.push_instruction("STR".into(), format!("{}, [FP, #-{}]", reg, write_start));
+                    ctx.push_instruction("STR".into(), format!("{}, [FP, #{}]", reg, -write_start));
                     write_start += size as i32;
                 }
             }
@@ -1238,8 +1242,8 @@ fn lower_statement<'a>(
             }
 
             // Create a new stack after the current one.
-            // Stack requires 8-byte alignment, and an offset
-            // of 4 for the old FP (currently, FP points to the old FP).
+            // Stack requires 8-byte alignment,
+            // and SP contains 4 bytes already allocated.
             let mut arg_stack_alloc = StackAllocator::new(8, 4);
 
             // Args need to be added onto the stack in reverse order.
@@ -1276,9 +1280,9 @@ fn lower_statement<'a>(
                     ctx.push_instruction(
                         "STR".into(),
                         format!(
-                            "{}, [SP, #-{}]",
+                            "{}, [SP, #{}]",
                             data_reg.names()[0],
-                            new_stack_offset as i32 + stack_loc.0
+                            -(new_stack_offset as i32 + stack_loc.0)
                         ),
                     );
 
@@ -1333,7 +1337,7 @@ fn lower_statement<'a>(
                 let mut read_start = var_ty.0;
 
                 for (reg, size) in reg.regs() {
-                    ctx.push_instruction("LDR".into(), format!("{}, [FP, #-{}]", reg, read_start));
+                    ctx.push_instruction("LDR".into(), format!("{}, [FP, #{}]", reg, -read_start));
                     read_start += size as i32;
                 }
             }
@@ -1359,5 +1363,29 @@ fn lower_statement<'a>(
 
             alloc.drop_maybe_temporary(load);
         }
+    }
+}
+
+/// Converts a register's name to its
+/// position (i.e., R0 -> 0).
+fn register_pos(val: &&str) -> u32 {
+    match *val {
+        "R0" => 0,
+        "R1" => 1,
+        "R2" => 2,
+        "R3" => 3,
+        "R4" => 4,
+        "R5" => 5,
+        "R6" => 6,
+        "R7" => 7,
+        "R8" => 8,
+        "R9" => 9,
+        "R10" => 10,
+        "FP" => 11,
+        "R12" => 12,
+        "SP" => 13,
+        "LR" => 14,
+        "PC" => 15,
+        _ => panic!("Invalid register!"),
     }
 }

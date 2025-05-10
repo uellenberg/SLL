@@ -224,10 +224,18 @@ impl<const Size: usize> RegMaybeTemporary<Size> {
 /// used in the second pass.
 pub struct StackAllocator<'a> {
     /// The number of bytes already occupied in the
-    /// stack, relative to the stack pointer.
+    /// stack, relative to the frame pointer.
     /// This will be excluded from stack_size,
     /// as it's already allocated.
     offset: u32,
+
+    /// The number of bytes allocated
+    /// at the stack pointer.
+    /// If the stack pointer points to an existing chunk
+    /// of 4 bytes, then this should be 4.
+    /// If the stack pointer points to the next available space,
+    /// then this should be 0.
+    at_sp: u32,
 
     /// The required alignment for the
     /// stack pointer before and after
@@ -250,12 +258,20 @@ impl<'a> StackAllocator<'a> {
     /// Creates a new StackAllocator, with
     /// the stack pointer at the specified
     /// alignment and a certain number of
-    /// bytes (offset) already allocated.
-    pub fn new(align: u32, offset: u32) -> StackAllocator<'a> {
+    /// bytes already allocated.
+    ///
+    /// at_sp specifies the number of bytes allocated
+    /// at the stack pointer.
+    /// If the stack pointer points to an existing chunk
+    /// of 4 bytes, then this should be 4.
+    /// If the stack pointer points to the next available space,
+    /// then this should be 0.
+    pub fn new(align: u32, at_sp: u32) -> StackAllocator<'a> {
         StackAllocator {
-            offset,
+            offset: 0,
+            at_sp,
             alignment: align,
-            blocks: vec![true; offset as usize],
+            blocks: vec![true; at_sp as usize],
             variables: HashMap::new(),
         }
     }
@@ -270,7 +286,14 @@ impl<'a> StackAllocator<'a> {
         assert!(type_data.align <= self.alignment);
 
         // Search for an existing space.
-        'search: for start in (0..self.blocks.len()).step_by(type_data.align as usize) {
+        'search: for mut start in (0..self.blocks.len()).step_by(type_data.align as usize) {
+            // Bump alignment based on offset.
+            // The real start of FP is before offset,
+            // so we need to calculate start such that start + offset
+            // is aligned.
+            start = align_to(start + self.offset as usize, type_data.align as usize)
+                - self.offset as usize;
+
             // Optionally resize the vec if it doesn't
             // have enough space for us to exist at this
             // position.
@@ -291,7 +314,7 @@ impl<'a> StackAllocator<'a> {
             }
 
             // We found a valid spot.
-            self.write_var(start as i32, name, type_data);
+            self.register_variable(start as i32, name, type_data);
             return start as i32;
         }
 
@@ -307,7 +330,7 @@ impl<'a> StackAllocator<'a> {
         // valid items (e.g., len() - 2 gives 2 valid items).
         let pos = self.blocks.len() as u32 - type_data.size;
 
-        self.write_var(pos as i32, name, type_data);
+        self.register_variable(pos as i32, name, type_data);
 
         pos as i32
     }
@@ -337,7 +360,16 @@ impl<'a> StackAllocator<'a> {
     /// Determines how large the stack is, respecting
     /// alignment.
     pub fn stack_size(&self) -> u32 {
-        align_to(self.blocks.len() as u32 - self.offset, self.alignment)
+        // at_sp is excluded from the calculations because
+        // it has no effect on stack size.
+        // The offset needs to be included such that offset + stack_size
+        // has the correct alignment.
+        // This computes the total required size, then removed offset
+        // to get stack_size.
+        align_to(
+            self.blocks.len() as u32 - self.at_sp + self.offset,
+            self.alignment,
+        ) - self.offset
     }
 
     /// Determines the number of bytes padded
@@ -348,7 +380,7 @@ impl<'a> StackAllocator<'a> {
     /// by this number, it will push the padding
     /// to the front.
     pub fn post_padding(&self) -> u32 {
-        self.stack_size() - (self.blocks.len() as u32 - self.offset)
+        self.stack_size() - (self.blocks.len() as u32 - self.at_sp)
     }
 
     /// Gets the stack position of a certain variable.
@@ -357,30 +389,59 @@ impl<'a> StackAllocator<'a> {
     }
 
     /// Creates a variable at the specified position.
-    fn write_var(&mut self, pos: i32, name: Cow<'a, str>, type_data: TypeData) {
+    ///
+    /// This is used to manually create variables that
+    /// are tied to specific positions in the stack.
+    ///
+    /// It is invalid to override an existing variable!
+    pub fn register_variable(&mut self, pos: i32, name: Cow<'a, str>, type_data: TypeData) {
+        // Optionally resize the vec if it doesn't
+        // have enough space for us to exist at this
+        // position.
+        // Max index is pos + size - 1,
+        // and max index for the vec is
+        // blocks.len() - 1, so we can drop
+        // the -1 in the comparison.
+        if (self.blocks.len() as i32) < pos + type_data.size as i32 {
+            let needed = (pos + type_data.size as i32) - self.blocks.len() as i32;
+
+            if needed < 0 {
+                panic!("Negative needed blocks!");
+            }
+            self.blocks.extend(iter::repeat_n(false, needed as usize));
+        }
+
         for i in pos..(pos + type_data.size as i32) {
+            // Negative stack offsets are handled
+            // manually.
+            if pos < 0 {
+                continue;
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                if self.blocks[i as usize] {
+                    panic!("Tried to override block {i} with {name}!");
+                }
+            }
+
             self.blocks[i as usize] = true;
         }
 
-        self.assign_var(name, pos, type_data);
-    }
-
-    /// Assigns a variable to a specific stack position,
-    /// without checking for validity.
-    ///
-    /// This should only be used to for arguments,
-    /// or when validity has been checked AND the
-    /// variable's blocks have been marked as used.
-    ///
-    /// This can be used to create variables BEFORE
-    /// the start of the stack, using a negative stack
-    /// offset
-    ///
-    /// Panics if the variable already exists.
-    pub fn assign_var(&mut self, name: Cow<'a, str>, pos: i32, type_data: TypeData) {
         if !self.variables.insert(name, (pos, type_data)).is_none() {
             panic!("write_var overrode a variable!");
         }
+    }
+
+    /// Updates the offset.
+    /// This MUST NOT be used
+    /// while any variables exist.
+    pub fn set_offset(&mut self, offset: u32) {
+        if !self.variables.is_empty() {
+            panic!("Tried to set offset while variables exist!");
+        }
+
+        self.offset = offset;
     }
 }
 
