@@ -333,6 +333,17 @@ impl<'a> StackAllocator<'a> {
         align_to(self.blocks.len() as u32 - self.offset, self.alignment)
     }
 
+    /// Determines the number of bytes padded
+    /// to the end of the SP to give it 8-byte
+    /// alignment.
+    ///
+    /// If all stack offsets are incremented
+    /// by this number, it will push the padding
+    /// to the front.
+    pub fn post_padding(&self) -> u32 {
+        self.stack_size() - (self.blocks.len() as u32 - self.offset)
+    }
+
     /// Gets the stack position of a certain variable.
     pub fn get(&self, name: &Cow<'a, str>) -> Option<(u32, TypeData)> {
         self.variables.get(name).copied()

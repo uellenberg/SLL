@@ -651,14 +651,25 @@ fn lower_function<'a>(
     }
 
     let no_save_regs = ["R0", "R1", "R2", "R3"].into_iter().collect::<HashSet<_>>();
-    let saved_regs = alloc
+    let mut saved_regs = alloc
         .used_regs()
         // Don't save function calling registers, since
         // that's the caller's responsibility, not the
         // callee.
         .filter(|reg| !no_save_regs.contains(reg))
-        .intersperse(", ")
-        .collect::<String>();
+        .collect::<Vec<_>>();
+
+    // We need an even number of registers to ensure
+    // 8-byte alignment of SP, as required by the stack
+    // allocator.
+    if saved_regs.len() % 2 == 1 {
+        // R0 will never exist in saved_regs,
+        // so it's a good candidate to make
+        // the number even.
+        saved_regs.push("R0");
+    }
+
+    let saved_regs = saved_regs.into_iter().intersperse(", ").collect::<String>();
 
     let mut push = "FP, LR".to_string();
     let mut pop = "FP, PC".to_string();
@@ -681,10 +692,10 @@ fn lower_function<'a>(
     ctx.push_instruction("MOV".into(), "FP, SP".into());
 
     // Set stack directly to maximum instead of push/pop.
-    ctx.push_instruction(
-        "SUB".into(),
-        format!("SP, SP, #{}", alloc.stack_alloc.stack_size().to_string()),
-    );
+    let stack_size = alloc.stack_alloc.stack_size();
+    if stack_size != 0 {
+        ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", stack_size));
+    }
 
     // The reason this is done twice is that
     // args are dropped when calling lower_statement,
@@ -1214,18 +1225,73 @@ fn lower_statement<'a>(
                 lower_set_variable(ctx, alloc, &temp_name, &arg.0.0);
             }
 
-            // TODO: Implement pass by stack.
-            //       Make sure padding is added and
-            //       args are added in reverse order.
-            if stack_args.len() > 0 || stack_temporaries.len() > 0 {
-                todo!();
+            // Create a new stack after the current one.
+            // Stack requires 8-byte alignment, and an offset
+            // of 4 for the old FP (currently, FP points to the old FP).
+            let mut arg_stack_alloc = StackAllocator::new(8, 4);
+
+            // Args need to be added onto the stack in reverse order.
+            for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+                arg_stack_alloc.create(Cow::Owned(i.to_string()), lower_type(&stack_arg.1));
+            }
+
+            let new_stack_size = arg_stack_alloc.stack_size();
+            // Padding happens at the end, which will mess up
+            // argument passing.
+            // Adding this number to all stack offsets will move
+            // padding to the start.
+            let new_stack_offset = arg_stack_alloc.post_padding();
+
+            if new_stack_size != 0 {
+                // Reverse is only needed for the stack
+                // positions, not after.
+                for (i, stack_arg) in stack_args.iter().enumerate() {
+                    // TODO: lower_load needs to support dynamic sizes
+                    //       and overflowing registers.
+                    let Some(data_reg) =
+                        lower_load::<1>(ctx, alloc, &stack_arg.0, lower_type(&stack_arg.1), None)
+                    else {
+                        panic!("Could not place argument into register!");
+                    };
+
+                    let Some(stack_loc) = arg_stack_alloc.get(&Cow::Owned(i.to_string())) else {
+                        unreachable!();
+                    };
+
+                    ctx.push_instruction(
+                        "STR".into(),
+                        format!(
+                            "{}, [SP, #-{}]",
+                            data_reg.names()[0],
+                            new_stack_offset + stack_loc.0
+                        ),
+                    );
+
+                    alloc.drop_maybe_temporary(data_reg);
+                }
+
+                // new_stack_offset isn't used here because
+                // it's already factored into the size, and
+                // front vs. back padding has no effect on
+                // size.
+                ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", new_stack_size));
             }
 
             match &fn_data.source {
                 IRFnSource::Direct(name) => {
                     ctx.push_instruction("BL".into(), name.to_string());
                 }
-                IRFnSource::Indirect(expr) => todo!(),
+                IRFnSource::Indirect(expr) => {
+                    // It's okay to perform a load here, since
+                    // we only use SP at the start and end of functions,
+                    // so it being messed up doesn't matter.
+                    todo!()
+                }
+            }
+
+            // Restore SP.
+            if new_stack_size != 0 {
+                ctx.push_instruction("ADD".into(), format!("SP, SP, #{}", new_stack_size));
             }
 
             // Free used resources.
