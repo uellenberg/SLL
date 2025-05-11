@@ -166,6 +166,10 @@ pub enum IRLoadBinary<'a> {
     /// Two variables.
     VariableVariable(Cow<'a, str>, Cow<'a, str>),
 
+    // TODO: Remove this, since it isn't needed
+    //       and doesn't correctly translate to asm.
+    //       Instead, flip the arguments and change
+    //       opcode to get VariableNum.
     /// A number literal and a variable.
     NumVariable(i64, Cow<'a, str>),
 

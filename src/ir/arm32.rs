@@ -1355,6 +1355,12 @@ fn lower_statement<'a>(
             let new_stack_offset = arg_stack_alloc.post_padding();
 
             if new_stack_size != 0 {
+                // new_stack_offset isn't used here because
+                // it's already factored into the size, and
+                // front vs. back padding has no effect on
+                // size.
+                ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", new_stack_size));
+
                 // Reverse is only needed for the stack
                 // positions, not after.
                 for (i, stack_arg) in stack_args.iter().enumerate() {
@@ -1379,18 +1385,13 @@ fn lower_statement<'a>(
                         format!(
                             "{}, [SP, #{}]",
                             data_reg.names()[0],
-                            -(new_stack_offset as i32 + stack_loc.0)
+                            // Add new_stack_size to undo the sub.
+                            new_stack_size as i32 - (new_stack_offset as i32 + stack_loc.0)
                         ),
                     );
 
                     alloc.drop_maybe_temporary(data_reg);
                 }
-
-                // new_stack_offset isn't used here because
-                // it's already factored into the size, and
-                // front vs. back padding has no effect on
-                // size.
-                ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", new_stack_size));
             }
 
             match &fn_data.source {

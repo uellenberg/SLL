@@ -3,7 +3,7 @@ function main() {
 }
 
 function other(test: u32, a1: u32, b1: u32, c1: u32, d1: u32, e1: u32) {
-    let ret: u32 = 10 + test;
+    let ret: u32 = test + 10;
     let other_v: u32 = e1;
 }
 
