@@ -8,6 +8,7 @@ use crate::ir::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::env::var;
 use std::fmt::Write as _;
 
 #[derive(Default, Clone)]
@@ -501,6 +502,65 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         todo!()
     }
 
+    fn take_registers(
+        &mut self,
+        ctx: &mut Self::Ctx,
+        registers: impl IntoIterator<Item = &'static str>,
+    ) -> Vec<Cow<'a, str>> {
+        let need_to_lock = registers.into_iter().collect::<Vec<_>>();
+
+        let vars_to_offload = self.reg_alloc.take_registers(need_to_lock.iter().copied());
+
+        // Take a byte-by-byte copy of each variable.
+        for var in &vars_to_offload {
+            let var_ty = self.reg_alloc.get(var).unwrap().clone();
+            self.reg_alloc.drop(var);
+
+            let mut write_start = self.stack_alloc.create(var.clone(), var_ty.ty());
+
+            for (reg, size) in var_ty.regs() {
+                ctx.push_instruction("STR".into(), format!("{}, [FP, #{}]", reg, -write_start));
+                write_start += size as i32;
+            }
+        }
+
+        // Now that the registers have been offloaded,
+        // we can lock the rest.
+        let final_take_size = self.reg_alloc.take_registers(need_to_lock).len();
+        // Ensure that there's nothing left.
+        assert_eq!(final_take_size, 0);
+
+        vars_to_offload
+    }
+
+    fn release_registers(
+        &mut self,
+        ctx: &mut Self::Ctx,
+        registers: impl IntoIterator<Item = &'static str>,
+        vars: Vec<Cow<'a, str>>,
+    ) {
+        self.reg_alloc.return_registers(registers);
+
+        for var in &vars {
+            let var_ty = self.stack_alloc.get(var).unwrap().clone();
+
+            let Some(reg) = self.reg_alloc.try_alloc(var.clone(), var_ty.1.clone()) else {
+                continue;
+            };
+
+            // Once we've confirmed a spot on the registers,
+            // drop the old stack space.
+            self.stack_alloc.drop(var);
+
+            let mut read_start = var_ty.0;
+
+            for (reg, size) in reg.regs() {
+                ctx.push_instruction("LDR".into(), format!("{}, [FP, #{}]", reg, -read_start));
+                read_start += size as i32;
+            }
+        }
+    }
+
     fn stack_size(&self) -> u32 {
         self.stack_alloc.stack_size()
     }
@@ -748,7 +808,7 @@ fn lower_function<'a>(
     alloc_args(&mut alloc, &ir_function.args, 0);
 
     for statement in &ir_function.body {
-        lower_statement(&mut dummy_ctx, &mut alloc, statement);
+        lower_statement(&mut dummy_ctx, &mut alloc, statement, &ir_function);
     }
 
     let no_save_regs = ["R0", "R1", "R2", "R3"].into_iter().collect::<HashSet<_>>();
@@ -801,7 +861,7 @@ fn lower_function<'a>(
     alloc_args(&mut alloc, &ir_function.args, pre_alloc_size as u32);
 
     for statement in &ir_function.body {
-        lower_statement(ctx, &mut alloc, statement);
+        lower_statement(ctx, &mut alloc, statement, &ir_function);
     }
 
     // Function names are unique.
@@ -1177,6 +1237,7 @@ fn lower_statement<'a>(
     ctx: &mut Arm32Context,
     alloc: &mut Arm32Allocator<'a, '_>,
     ir_statement: &IRStatement<'a>,
+    ir_function: &IRFunction<'a>,
 ) {
     // TODO: Handle statics and constants.
 
@@ -1283,20 +1344,8 @@ fn lower_statement<'a>(
                 .flatten()
                 .copied()
                 .collect::<Vec<_>>();
-            let vars_to_offload = alloc.reg_alloc.take_registers(need_to_lock.clone());
 
-            // Take a byte-by-byte copy of each variable.
-            for var in &vars_to_offload {
-                let var_ty = alloc.reg_alloc.get(var).unwrap().clone();
-                alloc.reg_alloc.drop(var);
-
-                let mut write_start = alloc.stack_alloc.create(var.clone(), var_ty.ty());
-
-                for (reg, size) in var_ty.regs() {
-                    ctx.push_instruction("STR".into(), format!("{}, [FP, #{}]", reg, -write_start));
-                    write_start += size as i32;
-                }
-            }
+            let offloaded_vars = alloc.take_registers(ctx, need_to_lock.iter().copied());
 
             // Now that the registers have been offloaded,
             // we can lock the rest.
@@ -1421,24 +1470,12 @@ fn lower_statement<'a>(
             }
 
             // Restore copied variables back to registers (if possible).
-            for var in &vars_to_offload {
-                let var_ty = alloc.stack_alloc.get(var).unwrap().clone();
+            alloc.release_registers(ctx, need_to_lock, offloaded_vars);
+        }
+        IRStatement::Return(value) => {
+            if let Some(value) = value {};
 
-                let Some(reg) = alloc.reg_alloc.try_alloc(var.clone(), var_ty.1.clone()) else {
-                    continue;
-                };
-
-                // Once we've confirmed a spot on the registers,
-                // drop the old stack space.
-                alloc.stack_alloc.drop(var);
-
-                let mut read_start = var_ty.0;
-
-                for (reg, size) in reg.regs() {
-                    ctx.push_instruction("LDR".into(), format!("{}, [FP, #{}]", reg, -read_start));
-                    read_start += size as i32;
-                }
-            }
+            ctx.push_instruction("B".into(), format!(".{}_ret", ir_function.name));
         }
         IRStatement::Label { name } => {
             // Label names are unique.

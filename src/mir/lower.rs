@@ -76,6 +76,9 @@ fn lower_statement<'a>(mir_statement: &MIRStatement<'a>) -> Option<IRStatement<'
             value: lower_expression(value),
         },
         MIRStatement::FunctionCall(fn_data) => IRStatement::FunctionCall(lower_fn_call(fn_data)),
+        MIRStatement::Return { expr, .. } => {
+            IRStatement::Return(expr.as_ref().map(|expr| lower_expression(expr)))
+        }
         MIRStatement::Label { name, .. } => IRStatement::Label { name: name.clone() },
         MIRStatement::Goto { name, .. } => IRStatement::Goto { name: name.clone() },
         MIRStatement::GotoNotEqual {

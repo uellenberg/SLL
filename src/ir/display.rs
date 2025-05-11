@@ -93,6 +93,13 @@ impl<'a> Display for IRStatement<'a> {
             IRStatement::FunctionCall(fn_data) => {
                 write!(f, "{}", fn_data)
             }
+            IRStatement::Return(value) => {
+                write!(f, "return")?;
+                if let Some(value) = value {
+                    write!(f, " {}", value)?;
+                }
+                write!(f, ";")
+            }
             IRStatement::Label { name } => {
                 write!(f, "label {}:", name)
             }

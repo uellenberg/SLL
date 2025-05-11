@@ -109,6 +109,10 @@ pub enum IRStatement<'a> {
     /// Calls a function, ignoring its return value.
     FunctionCall(IRFnCall<'a>),
 
+    /// Returns from the function, along with
+    /// an optional return value.
+    Return(Option<IRLoadOp<'a>>),
+
     /// A label that can be jumped to.
     Label {
         /// Is the label's name.

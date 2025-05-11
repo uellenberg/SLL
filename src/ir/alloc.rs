@@ -158,6 +158,27 @@ pub trait UnifiedAllocator<'a> {
     /// stored within another data type.
     fn write_8(&mut self, ctx: &mut Self::Ctx, reg: &Self::Read1, name: &Cow<'a, str>, offset: u32);
 
+    /// Removes the given registers from the pool of available once.
+    /// This allows the registers to be modified.
+    ///
+    /// Returns a list of variables that were offloaded
+    /// to the stack.
+    /// This list should be given back to release_registers,
+    /// to place those variables back into registers.
+    fn take_registers(
+        &mut self,
+        ctx: &mut Self::Ctx,
+        registers: impl IntoIterator<Item = &'static str>,
+    ) -> Vec<Cow<'a, str>>;
+
+    /// Releases registers previously locked with take_registers.
+    fn release_registers(
+        &mut self,
+        ctx: &mut Self::Ctx,
+        registers: impl IntoIterator<Item = &'static str>,
+        vars: Vec<Cow<'a, str>>,
+    );
+
     /// Determines how large the stack is, respecting
     /// alignment.
     fn stack_size(&self) -> u32;
