@@ -307,7 +307,9 @@ impl<'a> StackAllocator<'a> {
         assert!(type_data.align <= self.alignment);
 
         // Search for an existing space.
-        'search: for mut start in (0..self.blocks.len()).step_by(type_data.align as usize) {
+        'search: for mut start in
+            ((self.at_sp as usize)..self.blocks.len()).step_by(type_data.align as usize)
+        {
             // Bump alignment based on offset.
             // The real start of FP is before offset,
             // so we need to calculate start such that start + offset
@@ -624,6 +626,8 @@ impl<'a> RegisterAllocator<'a> {
             }
         }
 
+        self.available_regs.retain(|reg| !registers.contains(reg.0));
+
         let regs = registers
             .into_iter()
             .map(|reg| (reg, self.register_sizes[reg]))
@@ -831,7 +835,6 @@ impl<'a> RegisterAllocator<'a> {
 
 /// An allocation spanning one or
 /// more registers.
-#[derive(Debug, Clone)]
 pub struct RegisterAllocation {
     /// A list of the registers
     /// containing this allocation,

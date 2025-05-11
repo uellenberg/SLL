@@ -8,7 +8,6 @@ use crate::ir::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::env::var;
 use std::fmt::Write as _;
 
 #[derive(Default, Clone)]
@@ -513,12 +512,15 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
 
         // Take a byte-by-byte copy of each variable.
         for var in &vars_to_offload {
-            let var_ty = self.reg_alloc.get(var).unwrap().clone();
+            let var_data = self.reg_alloc.get(var).unwrap();
+            let var_ty = var_data.ty();
+            let var_regs = var_data.regs().collect::<Vec<_>>();
+
             self.reg_alloc.drop(var);
 
-            let mut write_start = self.stack_alloc.create(var.clone(), var_ty.ty());
+            let mut write_start = self.stack_alloc.create(var.clone(), var_ty);
 
-            for (reg, size) in var_ty.regs() {
+            for (reg, size) in var_regs {
                 ctx.push_instruction("STR".into(), format!("{}, [FP, #{}]", reg, -write_start));
                 write_start += size as i32;
             }
@@ -765,10 +767,6 @@ fn lower_function<'a>(
     statics: &HashMap<Cow<'a, str>, TypeData>,
     ir_function: &IRFunction<'a>,
 ) {
-    if ir_function.ret_ty.is_some() {
-        todo!();
-    }
-
     // TODO: Restrict function arg registers.
     let registers = [
         ("R4", 4),
@@ -1473,7 +1471,46 @@ fn lower_statement<'a>(
             alloc.release_registers(ctx, need_to_lock, offloaded_vars);
         }
         IRStatement::Return(value) => {
-            if let Some(value) = value {};
+            if let Some(value) = value {
+                let ret_ty = ir_function
+                    .ret_ty
+                    .clone()
+                    .expect("Return statement without return type!");
+
+                const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
+
+                let regs_left = ALLOWED_REGS.len();
+
+                // Register size is 4 bytes, so
+                // round up to get the number needed.
+                let regs_needed = lower_type(&ret_ty).size.div_ceil(4) as usize;
+
+                if regs_needed > regs_left {
+                    todo!("Stack return value passing.")
+                } else {
+                    let regs = &ALLOWED_REGS[0..regs_needed];
+
+                    // Offload existing users of regs to the stack.
+                    let vars_to_restore = alloc.take_registers(ctx, regs.iter().copied());
+
+                    alloc.reg_alloc.register_variable(
+                        Cow::Borrowed("$ret"),
+                        regs.iter().copied(),
+                        lower_type(&ret_ty),
+                    );
+                    lower_set_variable(ctx, alloc, &Cow::Borrowed("$ret"), value);
+
+                    // Past this point, no other statements will be
+                    // executed (although more may be compiled).
+                    // We can drop $ret to ensure a consistent state,
+                    // although the registers themselves won't be
+                    // overridden.
+                    // Similarly, we don't need to restore vars_to_restore,
+                    // because they won't be used.
+                    alloc.drop_variable(&Cow::Borrowed("$ret"));
+                    let _ = vars_to_restore;
+                }
+            };
 
             ctx.push_instruction("B".into(), format!(".{}_ret", ir_function.name));
         }
