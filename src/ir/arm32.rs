@@ -1399,9 +1399,10 @@ fn lower_fn_call<'a, T>(
     }
 
     // Create a new stack after the current one.
-    // Stack requires 8-byte alignment,
-    // and SP contains 4 bytes already allocated.
-    let mut arg_stack_alloc = StackAllocator::new(8, 4);
+    // Stack requires 8-byte alignment.
+    // at_sp = 0 because we're allocating from the
+    // top, so [SP] is a variable that we control.
+    let mut arg_stack_alloc = StackAllocator::new(8, 0);
 
     fn enforce_ffi_alignment(type_data: TypeData) -> TypeData {
         TypeData {
@@ -1412,7 +1413,10 @@ fn lower_fn_call<'a, T>(
     }
 
     // Args need to be added onto the stack in reverse order.
-    for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+    // Because we're allocating from the top to the bottom,
+    // this occurs naturally and there's no need
+    // to reverse anything.
+    for (i, stack_arg) in stack_args.iter().enumerate() {
         arg_stack_alloc.create(
             Cow::Owned(i.to_string()),
             enforce_ffi_alignment(lower_type(&stack_arg.1)),
@@ -1420,11 +1424,6 @@ fn lower_fn_call<'a, T>(
     }
 
     let new_stack_size = arg_stack_alloc.stack_size();
-    // Padding happens at the end, which will mess up
-    // argument passing.
-    // Adding this number to all stack offsets will move
-    // padding to the start.
-    let new_stack_offset = arg_stack_alloc.post_padding();
 
     if new_stack_size != 0 {
         // new_stack_offset isn't used here because
@@ -1457,8 +1456,9 @@ fn lower_fn_call<'a, T>(
                 format!(
                     "{}, [SP, #{}]",
                     data_reg.names()[0],
-                    // Add new_stack_size to undo the sub.
-                    new_stack_size as i32 - (new_stack_offset as i32 + stack_loc.0)
+                    // Allocate starting at the top, so [SP] is
+                    // the first variable (and first argument).
+                    stack_loc.0,
                 ),
             );
 
