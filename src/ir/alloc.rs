@@ -418,13 +418,6 @@ impl<'a> StackAllocator<'a> {
                 continue;
             }
 
-            #[cfg(debug_assertions)]
-            {
-                if self.blocks[i as usize] {
-                    panic!("Tried to override block {i} with {name}!");
-                }
-            }
-
             self.blocks[i as usize] = true;
         }
 

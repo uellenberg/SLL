@@ -589,31 +589,121 @@ fn lower_static<'a>(ctx: &mut Arm32Context, ir_static: &IRStatic<'a>) {
 /// pushed into the stack initially,
 /// before setting FP to SP.
 fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>], pre_alloc: u32) {
-    let regs: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
+    const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
+
+    // Next reg to use for arg passing.
     let mut cur_reg = 0;
 
+    // Arguments that need to be placed into registers.
+    let mut reg_args = vec![];
+
+    // Arguments that need to be placed into the stack.
+    // These are inserted in argument order, but need
+    // to be placed in reverse order.
+    let mut stack_args = vec![];
+
     for arg in args {
-        if !matches!(arg.ty, IRType::U32) {
-            todo!();
-        }
+        // cur_reg may be > ALLOWED_REGS.len()
+        let regs_left = ALLOWED_REGS.len().checked_sub(cur_reg).unwrap_or(0);
 
-        if cur_reg >= regs.len() {
-            // TODO: Proper location.
-            alloc
-                .stack_alloc
-                .register_variable(0, arg.name.clone(), lower_type(&arg.ty));
-            // todo!();
+        // Register size is 4 bytes, so
+        // round up to get the number needed.
+        let regs_needed = lower_type(&arg.ty).size.div_ceil(4) as usize;
+
+        if regs_needed > regs_left {
+            // Primitive types can be passed
+            // directly on the stack.
+            // However, structs and similar
+            // can only be passed directly on
+            // the stack if they have <= 4
+            // bytes.
+            // If we exceed this amount, we need
+            // to allocate them somewhere in memory,
+            // in this case in an arbitrary stack
+            // location, and pass a pointer to it
+            // as the argument.
+            let ty_info = lower_type(&arg.ty);
+            if ty_info.size <= 4 {
+                stack_args.push(arg.clone());
+            } else {
+                match arg.ty {
+                    IRType::U32 | IRType::Bool | IRType::FunctionPtr(..) | IRType::Ptr(..) => {
+                        // Primitive.
+                        stack_args.push(arg.clone());
+                    }
+                    IRType::Named(_) => {
+                        // Composite.
+
+                        todo!("Implement composite arg on stack (and deref).");
+                    }
+                }
+            }
         } else {
-            let count = alloc.reg_alloc.take_registers([regs[cur_reg]]).len();
-            assert_eq!(count, 0);
-
-            alloc.reg_alloc.register_variable(
-                arg.name.clone(),
-                [regs[cur_reg]],
-                lower_type(&arg.ty),
-            );
-            cur_reg += 1;
+            reg_args.push((arg.clone(), &ALLOWED_REGS[cur_reg..(cur_reg + regs_needed)]));
+            cur_reg += regs_needed;
         }
+    }
+
+    // Bind arg variables to the correct registers.
+    for arg in &reg_args {
+        alloc.reg_alloc.register_variable(
+            arg.0.name.clone(),
+            arg.1.iter().cloned(),
+            lower_type(&arg.0.ty),
+        );
+    }
+
+    // Create a new stack before the current one.
+    // Stack requires 8-byte alignment,
+    // and SP contains 4 bytes already allocated.
+    let mut arg_stack_alloc = StackAllocator::new(8, 4);
+
+    fn enforce_ffi_alignment(type_data: TypeData) -> TypeData {
+        TypeData {
+            size: type_data.size,
+            // FFI point needs 4-byte alignment.
+            align: type_data.align.max(4),
+        }
+    }
+
+    // Args need to be added onto the stack in reverse order.
+    // However, because args are allocated in front of the current
+    // stack, this has the effect of reversing their position, so we
+    // don't need to manually reverse here.
+    for (i, stack_arg) in stack_args.iter().enumerate() {
+        arg_stack_alloc.create(
+            Cow::Owned(i.to_string()),
+            enforce_ffi_alignment(lower_type(&stack_arg.ty)),
+        );
+    }
+
+    // We need to map the position of the last
+    // argument to -pre_alloc.
+    let mut true_stack_offset = None;
+
+    // Reverse to explore the last argument first,
+    // to set true_stack_offset.
+    for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+        let Some(stack_loc) = arg_stack_alloc.get(&Cow::Owned(i.to_string())) else {
+            unreachable!();
+        };
+
+        // Offset to map from our arg stack allocator
+        // to the actual one.
+        let offset = *true_stack_offset.get_or_insert(0 - stack_loc.0 - pre_alloc as i32);
+        println!(
+            "{}: {} + {} = {}",
+            &stack_arg.name,
+            stack_loc.0,
+            offset,
+            stack_loc.0 + offset
+        );
+
+        alloc.stack_alloc.register_variable(
+            stack_loc.0 + offset,
+            stack_arg.name.clone(),
+            stack_loc.1,
+        );
     }
 }
 
@@ -1246,12 +1336,23 @@ fn lower_statement<'a>(
             // and SP contains 4 bytes already allocated.
             let mut arg_stack_alloc = StackAllocator::new(8, 4);
 
+            fn enforce_ffi_alignment(type_data: TypeData) -> TypeData {
+                TypeData {
+                    size: type_data.size,
+                    // FFI point needs 4-byte alignment.
+                    align: type_data.align.max(4),
+                }
+            }
+
             // Args need to be added onto the stack in reverse order.
             // However, because args are allocated in front of the current
             // stack, this has the effect of reversing their position, so we
             // don't need to manually reverse here.
             for (i, stack_arg) in stack_args.iter().enumerate() {
-                arg_stack_alloc.create(Cow::Owned(i.to_string()), lower_type(&stack_arg.1));
+                arg_stack_alloc.create(
+                    Cow::Owned(i.to_string()),
+                    enforce_ffi_alignment(lower_type(&stack_arg.1)),
+                );
             }
 
             let new_stack_size = arg_stack_alloc.stack_size();
@@ -1267,9 +1368,13 @@ fn lower_statement<'a>(
                 for (i, stack_arg) in stack_args.iter().enumerate() {
                     // TODO: lower_load needs to support dynamic sizes
                     //       and overflowing registers.
-                    let Some(data_reg) =
-                        lower_load::<1>(ctx, alloc, &stack_arg.0, lower_type(&stack_arg.1), None)
-                    else {
+                    let Some(data_reg) = lower_load::<1>(
+                        ctx,
+                        alloc,
+                        &stack_arg.0,
+                        enforce_ffi_alignment(lower_type(&stack_arg.1)),
+                        None,
+                    ) else {
                         panic!("Could not place argument into register!");
                     };
 
