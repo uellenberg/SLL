@@ -505,13 +505,13 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         &mut self,
         ctx: &mut Self::Ctx,
         registers: impl IntoIterator<Item = &'static str>,
-    ) -> Vec<Cow<'a, str>> {
+    ) -> Vec<(Cow<'a, str>, Vec<&'static str>)> {
         let need_to_lock = registers.into_iter().collect::<Vec<_>>();
 
         let vars_to_offload = self.reg_alloc.take_registers(need_to_lock.iter().copied());
 
         // Take a byte-by-byte copy of each variable.
-        for var in &vars_to_offload {
+        for (var, _regs) in &vars_to_offload {
             let var_data = self.reg_alloc.get(var).unwrap();
             let var_ty = var_data.ty();
             let var_regs = var_data.regs().collect::<Vec<_>>();
@@ -539,15 +539,30 @@ impl<'a, 'b> UnifiedAllocator<'a> for Arm32Allocator<'a, 'b> {
         &mut self,
         ctx: &mut Self::Ctx,
         registers: impl IntoIterator<Item = &'static str>,
-        vars: Vec<Cow<'a, str>>,
+        vars: Vec<(Cow<'a, str>, Vec<&'static str>)>,
     ) {
-        self.reg_alloc.return_registers(registers);
+        let var_regs = vars
+            .iter()
+            .map(|(_, regs)| regs)
+            .flatten()
+            .copied()
+            .collect::<HashSet<_>>();
 
-        for var in &vars {
+        // Only return the registers we don't
+        // need to give back to variables.
+        self.reg_alloc
+            .return_registers(registers.into_iter().filter(|reg| !var_regs.contains(reg)));
+
+        for (var, regs) in &vars {
             let var_ty = self.stack_alloc.get(var).unwrap().clone();
 
-            let Some(reg) = self.reg_alloc.try_alloc(var.clone(), var_ty.1.clone()) else {
-                continue;
+            // Return the exact registers, or else
+            // code outside of branches will fail because
+            // the registers would be conditional.
+            self.reg_alloc
+                .register_variable(var.clone(), regs.iter().copied(), var_ty.1.clone());
+            let Some(reg) = self.reg_alloc.get(&var) else {
+                unreachable!();
             };
 
             // Once we've confirmed a spot on the registers,
@@ -903,6 +918,18 @@ fn lower_op_binary_32(
         IRBinaryOperation::Div32 => {
             ctx.push_instruction(
                 "DIV".into(),
+                format!("{}, {}, {}", store_reg, left_reg, right_reg),
+            );
+        }
+        IRBinaryOperation::And32 => {
+            ctx.push_instruction(
+                "AND".into(),
+                format!("{}, {}, {}", store_reg, left_reg, right_reg),
+            );
+        }
+        IRBinaryOperation::Or32 => {
+            ctx.push_instruction(
+                "ORR".into(),
                 format!("{}, {}, {}", store_reg, left_reg, right_reg),
             );
         }
@@ -1558,15 +1585,21 @@ fn lower_statement<'a>(
                     );
                     lower_set_variable(ctx, alloc, &Cow::Borrowed("$ret"), value);
 
-                    // Past this point, no other statements will be
-                    // executed (although more may be compiled).
-                    // We can drop $ret to ensure a consistent state,
-                    // although the registers themselves won't be
-                    // overridden.
-                    // Similarly, we don't need to restore vars_to_restore,
-                    // because they won't be used.
+                    // Drop $ret to keep state consistent.
+                    // This won't actually affect the registers.
                     alloc.drop_variable(&Cow::Borrowed("$ret"));
-                    let _ = vars_to_restore;
+
+                    // We need to release the registers to avoid
+                    // causing issues with other branches, but we
+                    // can't emit the assembly from it, or else we'll
+                    // override the return value.
+                    // So, we'll use a clone of the context
+                    // so the assembly isn't emitted.
+                    alloc.release_registers(
+                        &mut ctx.clone(),
+                        regs.iter().copied(),
+                        vars_to_restore,
+                    );
                 }
             };
 

@@ -169,14 +169,14 @@ pub trait UnifiedAllocator<'a> {
         &mut self,
         ctx: &mut Self::Ctx,
         registers: impl IntoIterator<Item = &'static str>,
-    ) -> Vec<Cow<'a, str>>;
+    ) -> Vec<(Cow<'a, str>, Vec<&'static str>)>;
 
     /// Releases registers previously locked with take_registers.
     fn release_registers(
         &mut self,
         ctx: &mut Self::Ctx,
         registers: impl IntoIterator<Item = &'static str>,
-        vars: Vec<Cow<'a, str>>,
+        vars: Vec<(Cow<'a, str>, Vec<&'static str>)>,
     );
 
     /// Determines how large the stack is, respecting
@@ -525,11 +525,12 @@ impl<'a> RegisterAllocator<'a> {
     /// do anything to it.
     /// However, it will return a list of the names of
     /// all the variables that need to be dropped
-    /// to take the remaining registers.
+    /// to take the remaining registers, along with
+    /// the registers they're tied to.
     pub fn take_registers(
         &mut self,
         registers: impl IntoIterator<Item = &'static str>,
-    ) -> Vec<Cow<'a, str>> {
+    ) -> Vec<(Cow<'a, str>, Vec<&'static str>)> {
         let registers: HashSet<&'static str> = registers.into_iter().collect();
         let mut used_reg_vars = vec![];
 
@@ -537,7 +538,14 @@ impl<'a> RegisterAllocator<'a> {
         for (name, alloc) in &self.variables {
             for (reg, _) in &alloc.regs {
                 if registers.contains(reg) {
-                    used_reg_vars.push(name.clone());
+                    used_reg_vars.push((
+                        name.clone(),
+                        alloc
+                            .regs
+                            .iter()
+                            .map(|(r, _)| *r)
+                            .collect::<Vec<&'static str>>(),
+                    ));
                     break;
                 }
             }
@@ -693,7 +701,7 @@ impl<'a> RegisterAllocator<'a> {
         let removed_regs = self.available_regs.drain(0..=reg_range_end).collect();
         self.sort_available_regs();
 
-        self.variables.insert(
+        let insert_res = self.variables.insert(
             name.clone(),
             RegisterAllocation {
                 regs: removed_regs,
@@ -701,6 +709,10 @@ impl<'a> RegisterAllocator<'a> {
                 freed: false,
             },
         );
+        if !insert_res.is_none() {
+            panic!("try_alloc overrode a variable ({name})!");
+        }
+
         self.variables.get(&name)
     }
 
