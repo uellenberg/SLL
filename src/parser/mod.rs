@@ -283,6 +283,13 @@ fn parse_function_body<'a>(location: &'a Path, value: Pair<'a, Rule>) -> Vec<MIR
                     span,
                 }));
             }
+            Rule::returnStmt => body.push(MIRStatement::Return {
+                expr: pair
+                    .into_inner()
+                    .next()
+                    .map(|v| parse_expression(location, v)),
+                span,
+            }),
             Rule::ifStatement => {
                 body.push(parse_if_statement(location, pair));
             }

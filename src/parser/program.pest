@@ -38,6 +38,7 @@ functionStatement = _{
     | createVariable
     | functionCallDirect
     | functionCallIndirect
+    | returnStmt
     | ifStatement
     | loopStatement
     | continueStatement
@@ -58,6 +59,8 @@ functionCallIndirect = { expression ~ "(" ~ functionCallArgs? ~ ")" ~ ";"  }
 functionCallArgs = {
     expression ~ ("," ~ expression)* ~ ","?
 }
+
+returnStmt = { "return" ~ expression? ~ ";" }
 
 ifStatement = {
     "if" ~

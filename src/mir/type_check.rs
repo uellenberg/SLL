@@ -311,6 +311,40 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                         return false;
                     }
                 }
+
+                MIRStatement::Return { expr, span, .. } => match expr {
+                    Some(expr) => {
+                        let Some(cond_ty) = check_expression(ctx, expr, Some(scope)) else {
+                            return false;
+                        };
+
+                        if cond_ty.ty != function.ret_ty.ty {
+                            print_unexpected_expr_ty(
+                                ctx,
+                                function.ret_ty.clone(),
+                                cond_ty,
+                                expr.span.clone(),
+                            );
+
+                            return false;
+                        }
+                    }
+                    None => {
+                        if function.ret_ty.ty != MIRTypeInner::Unit {
+                            print_unexpected_expr_ty(
+                                ctx,
+                                function.ret_ty.clone(),
+                                MIRType {
+                                    ty: MIRTypeInner::Unit,
+                                    span: Some(span.clone()),
+                                },
+                                span.clone(),
+                            );
+
+                            return false;
+                        }
+                    }
+                },
             }
 
             true

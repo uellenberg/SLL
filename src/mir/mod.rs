@@ -233,6 +233,17 @@ pub enum MIRStatement<'a> {
     /// Calls a function, ignoring its return value.
     FunctionCall(MIRFnCall<'a>),
 
+    /// Exits the function with an optional
+    /// value.
+    Return {
+        /// The value to return (if it exists).
+        expr: Option<MIRExpression<'a>>,
+
+        /// The code that created
+        /// this item.
+        span: Span<'a>,
+    },
+
     /// A label that can be jumped to.
     Label {
         /// The label's name.

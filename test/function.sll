@@ -7,6 +7,7 @@ function other(test: u32, a1: u32, b1: u32, c1: u32, d1: u32, e1: u32) {
     let other_v: u32 = e1;
 }
 
-function bools(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) {
+function bools(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) -> bool {
     let val: bool = f;
+    return val;
 }

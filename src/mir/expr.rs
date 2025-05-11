@@ -65,6 +65,12 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
                             *arg = reduce_expr_simple(&ctx.program.constants, &arg);
                         }
                     }
+
+                    MIRStatement::Return { expr, .. } => {
+                        if let Some(expr) = expr {
+                            *expr = reduce_expr_simple(&ctx.program.constants, expr);
+                        }
+                    }
                 }
 
                 true
@@ -340,6 +346,17 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                             ret_ty: fn_data.ret_ty,
                             span: fn_data.span,
                         })
+                    }
+
+                    MIRStatement::Return { expr, span } => {
+                        let new_expr = expr.map(|expr| {
+                            split_expr_to_locals(&expr, &mut pre, &mut post, &local_idx, true)
+                        });
+
+                        MIRStatement::Return {
+                            expr: new_expr,
+                            span,
+                        }
                     }
                 };
 

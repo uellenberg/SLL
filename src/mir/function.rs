@@ -55,6 +55,12 @@ pub fn resolve_fn_to_vars<'a>(ctx: &mut MIRContext<'_>) {
                             }
                         }
                     }
+
+                    MIRStatement::Return { expr, .. } => {
+                        if let Some(expr) = expr {
+                            resolve_expr_fn_to_vars(ctx, expr);
+                        }
+                    }
                 }
 
                 true

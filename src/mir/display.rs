@@ -119,6 +119,17 @@ impl<'a> Display for MIRStatement<'a> {
             MIRStatement::FunctionCall(fn_call) => {
                 fn_call.fmt(f)?;
             }
+            MIRStatement::Return { expr, span } => {
+                write!(f, "return")?;
+                if let Some(expr) = expr {
+                    write!(f, " {}", expr)?;
+                }
+                write!(f, ";")?;
+
+                if f.alternate() {
+                    writeln!(f, " /* {span} */")?;
+                }
+            }
             MIRStatement::Label { name, span, .. } => {
                 write!(f, "label {}:", name)?;
 

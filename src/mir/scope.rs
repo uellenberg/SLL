@@ -108,6 +108,7 @@ macro_rules! explore_recurse {
             // Doesn't include sub blocks.
             MIRStatement::SetVariable { .. } => {}
             MIRStatement::FunctionCall { .. } => {}
+            MIRStatement::Return { .. } => {}
             MIRStatement::Goto { .. } => {}
             MIRStatement::Label { .. } => {}
             MIRStatement::CreateVariable { .. } => {}
@@ -191,6 +192,7 @@ impl<Data: Clone + Default> StatementExplorer<Data> {
             // Doesn't create / drop variables.
             MIRStatement::SetVariable { .. } => {}
             MIRStatement::FunctionCall { .. } => {}
+            MIRStatement::Return { .. } => {}
             MIRStatement::IfStatement { .. } => {}
             MIRStatement::Goto { .. } => {}
             MIRStatement::Label { .. } => {}
