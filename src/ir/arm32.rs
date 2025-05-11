@@ -667,23 +667,22 @@ fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>], p
     }
 
     // Args need to be added onto the stack in reverse order.
-    // However, because args are allocated in front of the current
-    // stack, this has the effect of reversing their position, so we
-    // don't need to manually reverse here.
-    for (i, stack_arg) in stack_args.iter().enumerate() {
+    for (i, stack_arg) in stack_args.iter().enumerate().rev() {
         arg_stack_alloc.create(
             Cow::Owned(i.to_string()),
             enforce_ffi_alignment(lower_type(&stack_arg.ty)),
         );
     }
 
-    // We need to map the position of the last
+    // We need to map the position of the first
     // argument to -pre_alloc.
+    // The first argument is the one closest to
+    // the front of the stack.
     let mut true_stack_offset = None;
 
-    // Reverse to explore the last argument first,
+    // Explore the first argument first,
     // to set true_stack_offset.
-    for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+    for (i, stack_arg) in stack_args.iter().enumerate() {
         let Some(stack_loc) = arg_stack_alloc.get(&Cow::Owned(i.to_string())) else {
             unreachable!();
         };
@@ -691,13 +690,6 @@ fn alloc_args<'a>(alloc: &mut Arm32Allocator<'a, '_>, args: &[IRVariable<'a>], p
         // Offset to map from our arg stack allocator
         // to the actual one.
         let offset = *true_stack_offset.get_or_insert(0 - stack_loc.0 - pre_alloc as i32);
-        println!(
-            "{}: {} + {} = {}",
-            &stack_arg.name,
-            stack_loc.0,
-            offset,
-            stack_loc.0 + offset
-        );
 
         alloc.stack_alloc.register_variable(
             stack_loc.0 + offset,
@@ -1201,6 +1193,9 @@ fn lower_statement<'a>(
             lower_set_variable(ctx, alloc, name, value);
         }
         IRStatement::FunctionCall(fn_data) => {
+            // TODO: Properly conform to C ABI: https://learn.microsoft.com/en-us/cpp/build/overview-of-arm-abi-conventions?view=msvc-170#parameter-passing
+            // TODO: Return values.
+
             const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
 
             // Next reg to use for arg passing.
@@ -1345,10 +1340,7 @@ fn lower_statement<'a>(
             }
 
             // Args need to be added onto the stack in reverse order.
-            // However, because args are allocated in front of the current
-            // stack, this has the effect of reversing their position, so we
-            // don't need to manually reverse here.
-            for (i, stack_arg) in stack_args.iter().enumerate() {
+            for (i, stack_arg) in stack_args.iter().enumerate().rev() {
                 arg_stack_alloc.create(
                     Cow::Owned(i.to_string()),
                     enforce_ffi_alignment(lower_type(&stack_arg.1)),
@@ -1446,12 +1438,6 @@ fn lower_statement<'a>(
                     read_start += size as i32;
                 }
             }
-
-            // What has to be implemented:
-            // - Offloading registers to the stack.
-            // - Allocating specific registers for args.
-            // - Ensuring that a BLX lives in a register.
-            // - Restoring variables after the call.
         }
         IRStatement::Label { name } => {
             // Label names are unique.
