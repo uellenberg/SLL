@@ -147,6 +147,9 @@ pub enum IRLoadOp<'a> {
 
     /// Performs a binary operation.
     Binary(IRBinaryOperation, IRLoadBinary<'a>),
+
+    /// Calls a function, loading its return value.
+    FunctionCall(Box<IRFnCall<'a>>),
 }
 
 /// A single piece of data that's

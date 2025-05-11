@@ -176,6 +176,10 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             IRLoadOp::Unary(IRLoadUnary::Variable(var.clone()))
         }
 
+        MIRExpressionInner::FunctionCall(fn_data) => {
+            IRLoadOp::FunctionCall(Box::new(lower_fn_call(fn_data)))
+        }
+
         // No need to handle num num as const eval
         // removes it.
         binary_lv_in!(

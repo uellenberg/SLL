@@ -3,8 +3,8 @@ use crate::ir::alloc::{
     UnifiedAllocator,
 };
 use crate::ir::{
-    IRBinaryOperation, IRConstant, IRFnSource, IRFunction, IRLoadBinary, IRLoadOp, IRLoadUnary,
-    IRProgram, IRStatement, IRStatic, IRType, IRVariable,
+    IRBinaryOperation, IRConstant, IRFnCall, IRFnSource, IRFunction, IRLoadBinary, IRLoadOp,
+    IRLoadUnary, IRProgram, IRStatement, IRStatic, IRType, IRVariable,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -1181,6 +1181,45 @@ fn lower_load<'a, const Size: usize>(
                 }
             }
         }
+        IRLoadOp::FunctionCall(fn_data) => {
+            let temp = lower_fn_call(ctx, alloc, fn_data, |ctx, alloc, fn_data| {
+                let ret_ty = fn_data.ret_ty.clone().expect("Cannot load void function!");
+
+                const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
+
+                let regs_left = ALLOWED_REGS.len();
+
+                // Register size is 4 bytes, so
+                // round up to get the number needed.
+                let regs_needed = lower_type(&ret_ty).size.div_ceil(4) as usize;
+
+                if regs_needed > regs_left {
+                    todo!("Stack return value passing.")
+                } else {
+                    // These registers are guaranteed to be
+                    // available by lower_fn_call.
+                    let regs = &ALLOWED_REGS[0..regs_needed];
+
+                    // TODO: Allow reading directly from regs.
+                    let temp = get_temporary_output(alloc);
+                    let temp_names = temp.names();
+
+                    assert_eq!(
+                        regs.len(),
+                        temp_names.len(),
+                        "Function call from length != to length!"
+                    );
+
+                    for (&from_reg, to_reg) in regs.iter().zip(temp_names) {
+                        ctx.push_instruction("MOV".into(), format!("{}, {}", to_reg, from_reg));
+                    }
+
+                    temp
+                }
+            });
+
+            get_return(temp)
+        }
     }
 }
 
@@ -1228,6 +1267,241 @@ fn lower_set_variable<'a>(
     }
 }
 
+/// Lowers a function call, and runs
+/// the specified function to handle
+/// return data.
+///
+/// R0-R3 are guaranteed to be available
+/// when handle_return runs.
+///
+/// Returns the result of handle_return.
+fn lower_fn_call<'a, T>(
+    ctx: &mut Arm32Context,
+    alloc: &mut Arm32Allocator<'a, '_>,
+    fn_data: &IRFnCall<'a>,
+    handle_return: impl FnOnce(&mut Arm32Context, &mut Arm32Allocator<'a, '_>, &IRFnCall<'a>) -> T,
+) -> T {
+    // TODO: Properly conform to C ABI: https://learn.microsoft.com/en-us/cpp/build/overview-of-arm-abi-conventions?view=msvc-170#parameter-passing
+    // TODO: Return values.
+
+    const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
+
+    // Next reg to use for arg passing.
+    let mut cur_reg = 0;
+
+    // Used to create temporary stack vars when passing large composites.
+    let mut arg_temp_idx = 0;
+
+    // Arguments that need to be placed into registers.
+    let mut reg_args = vec![];
+
+    // Arguments that need to be placed into the stack.
+    // These are inserted in argument order, but need
+    // to be placed in reverse order.
+    let mut stack_args = vec![];
+
+    // Variables that need to be dropped after
+    // the function call is over.
+    let mut stack_temporaries = vec![];
+
+    for arg in &fn_data.args {
+        // cur_reg may be > ALLOWED_REGS.len()
+        let regs_left = ALLOWED_REGS.len().checked_sub(cur_reg).unwrap_or(0);
+
+        // Register size is 4 bytes, so
+        // round up to get the number needed.
+        let regs_needed = lower_type(&arg.1).size.div_ceil(4) as usize;
+
+        if regs_needed > regs_left {
+            // Primitive types can be passed
+            // directly on the stack.
+            // However, structs and similar
+            // can only be passed directly on
+            // the stack if they have <= 4
+            // bytes.
+            // If we exceed this amount, we need
+            // to allocate them somewhere in memory,
+            // in this case in an arbitrary stack
+            // location, and pass a pointer to it
+            // as the argument.
+            let ty_info = lower_type(&arg.1);
+            if ty_info.size <= 4 {
+                stack_args.push(arg.clone());
+            } else {
+                match arg.1 {
+                    IRType::U32 | IRType::Bool | IRType::FunctionPtr(..) | IRType::Ptr(..) => {
+                        // Primitive.
+                        stack_args.push(arg.clone());
+                    }
+                    IRType::Named(_) => {
+                        // Composite.
+
+                        // This won't conflict with anything, since
+                        // the variables are only created within this context.
+                        // Nested function calls are split into locals.
+                        let temp_name: Cow<'a, str> = Cow::Owned(format!("$fn_arg_{arg_temp_idx}"));
+                        alloc.stack_alloc.create(temp_name.clone(), ty_info);
+                        arg_temp_idx += 1;
+
+                        stack_temporaries.push(temp_name.clone());
+                        stack_args.push((
+                            IRLoadOp::Unary(IRLoadUnary::Reference(temp_name)),
+                            IRType::Ptr(Box::new(arg.1.clone())),
+                        ));
+                    }
+                }
+            }
+        } else {
+            reg_args.push((arg.clone(), &ALLOWED_REGS[cur_reg..(cur_reg + regs_needed)]));
+            cur_reg += regs_needed;
+        }
+    }
+
+    // Lock all the registers that we need
+    // to use, and which haven't already been used.
+    // The ones that have been used already will be
+    // offloaded to the stack.
+    let need_to_lock = reg_args
+        .iter()
+        .map(|arg| arg.1)
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+
+    let offloaded_vars = alloc.take_registers(ctx, need_to_lock.iter().copied());
+
+    // Now that the registers have been offloaded,
+    // we can lock the rest.
+    let final_take_size = alloc.reg_alloc.take_registers(need_to_lock.clone()).len();
+    // Ensure that there's nothing left.
+    assert_eq!(final_take_size, 0);
+
+    // A list of all the register variables used
+    // for argument passing that need to be dropped.
+    let mut reg_temporaries = vec![];
+
+    // Create variables for each register, then
+    // set them with the correct values.
+    for arg in &reg_args {
+        // This won't conflict with anything, since
+        // the variables are only created within this context.
+        // Nested function calls are split into locals.
+        let temp_name: Cow<'a, str> = Cow::Owned(format!("$fn_arg_{arg_temp_idx}"));
+        alloc.reg_alloc.register_variable(
+            temp_name.clone(),
+            arg.1.iter().cloned(),
+            lower_type(&arg.0.1),
+        );
+        arg_temp_idx += 1;
+
+        reg_temporaries.push(temp_name.clone());
+        lower_set_variable(ctx, alloc, &temp_name, &arg.0.0);
+    }
+
+    // Create a new stack after the current one.
+    // Stack requires 8-byte alignment,
+    // and SP contains 4 bytes already allocated.
+    let mut arg_stack_alloc = StackAllocator::new(8, 4);
+
+    fn enforce_ffi_alignment(type_data: TypeData) -> TypeData {
+        TypeData {
+            size: type_data.size,
+            // FFI point needs 4-byte alignment.
+            align: type_data.align.max(4),
+        }
+    }
+
+    // Args need to be added onto the stack in reverse order.
+    for (i, stack_arg) in stack_args.iter().enumerate().rev() {
+        arg_stack_alloc.create(
+            Cow::Owned(i.to_string()),
+            enforce_ffi_alignment(lower_type(&stack_arg.1)),
+        );
+    }
+
+    let new_stack_size = arg_stack_alloc.stack_size();
+    // Padding happens at the end, which will mess up
+    // argument passing.
+    // Adding this number to all stack offsets will move
+    // padding to the start.
+    let new_stack_offset = arg_stack_alloc.post_padding();
+
+    if new_stack_size != 0 {
+        // new_stack_offset isn't used here because
+        // it's already factored into the size, and
+        // front vs. back padding has no effect on
+        // size.
+        ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", new_stack_size));
+
+        // Reverse is only needed for the stack
+        // positions, not after.
+        for (i, stack_arg) in stack_args.iter().enumerate() {
+            // TODO: lower_load needs to support dynamic sizes
+            //       and overflowing registers.
+            let Some(data_reg) = lower_load::<1>(
+                ctx,
+                alloc,
+                &stack_arg.0,
+                enforce_ffi_alignment(lower_type(&stack_arg.1)),
+                None,
+            ) else {
+                panic!("Could not place argument into register!");
+            };
+
+            let Some(stack_loc) = arg_stack_alloc.get(&Cow::Owned(i.to_string())) else {
+                unreachable!();
+            };
+
+            ctx.push_instruction(
+                "STR".into(),
+                format!(
+                    "{}, [SP, #{}]",
+                    data_reg.names()[0],
+                    // Add new_stack_size to undo the sub.
+                    new_stack_size as i32 - (new_stack_offset as i32 + stack_loc.0)
+                ),
+            );
+
+            alloc.drop_maybe_temporary(data_reg);
+        }
+    }
+
+    match &fn_data.source {
+        IRFnSource::Direct(name) => {
+            ctx.push_instruction("BL".into(), name.to_string());
+        }
+        IRFnSource::Indirect(expr) => {
+            // It's okay to perform a load here, since
+            // we only use SP at the start and end of functions,
+            // so it being messed up doesn't matter.
+            todo!()
+        }
+    }
+
+    // Restore SP.
+    if new_stack_size != 0 {
+        ctx.push_instruction("ADD".into(), format!("SP, SP, #{}", new_stack_size));
+    }
+
+    // Free used resources.
+    for to_drop in stack_temporaries {
+        alloc.stack_alloc.drop(&to_drop);
+    }
+
+    for to_drop in reg_temporaries {
+        alloc.reg_alloc.drop(&to_drop);
+    }
+
+    // This is the last point all the registers
+    // are clean, so handle return data.
+    let output = handle_return(ctx, alloc, fn_data);
+
+    // Restore copied variables back to registers (if possible).
+    alloc.release_registers(ctx, need_to_lock, offloaded_vars);
+
+    output
+}
+
 /// Converts IRStatement to Arm32.
 /// The StackAllocator must have already
 /// ran through every statement.
@@ -1252,223 +1526,7 @@ fn lower_statement<'a>(
             lower_set_variable(ctx, alloc, name, value);
         }
         IRStatement::FunctionCall(fn_data) => {
-            // TODO: Properly conform to C ABI: https://learn.microsoft.com/en-us/cpp/build/overview-of-arm-abi-conventions?view=msvc-170#parameter-passing
-            // TODO: Return values.
-
-            const ALLOWED_REGS: &'static [&'static str] = &["R0", "R1", "R2", "R3"];
-
-            // Next reg to use for arg passing.
-            let mut cur_reg = 0;
-
-            // Used to create temporary stack vars when passing large composites.
-            let mut arg_temp_idx = 0;
-
-            // Arguments that need to be placed into registers.
-            let mut reg_args = vec![];
-
-            // Arguments that need to be placed into the stack.
-            // These are inserted in argument order, but need
-            // to be placed in reverse order.
-            let mut stack_args = vec![];
-
-            // Variables that need to be dropped after
-            // the function call is over.
-            let mut stack_temporaries = vec![];
-
-            for arg in &fn_data.args {
-                // cur_reg may be > ALLOWED_REGS.len()
-                let regs_left = ALLOWED_REGS.len().checked_sub(cur_reg).unwrap_or(0);
-
-                // Register size is 4 bytes, so
-                // round up to get the number needed.
-                let regs_needed = lower_type(&arg.1).size.div_ceil(4) as usize;
-
-                if regs_needed > regs_left {
-                    // Primitive types can be passed
-                    // directly on the stack.
-                    // However, structs and similar
-                    // can only be passed directly on
-                    // the stack if they have <= 4
-                    // bytes.
-                    // If we exceed this amount, we need
-                    // to allocate them somewhere in memory,
-                    // in this case in an arbitrary stack
-                    // location, and pass a pointer to it
-                    // as the argument.
-                    let ty_info = lower_type(&arg.1);
-                    if ty_info.size <= 4 {
-                        stack_args.push(arg.clone());
-                    } else {
-                        match arg.1 {
-                            IRType::U32
-                            | IRType::Bool
-                            | IRType::FunctionPtr(..)
-                            | IRType::Ptr(..) => {
-                                // Primitive.
-                                stack_args.push(arg.clone());
-                            }
-                            IRType::Named(_) => {
-                                // Composite.
-
-                                // This won't conflict with anything, since
-                                // the variables are only created within this context.
-                                // Nested function calls are split into locals.
-                                let temp_name: Cow<'a, str> =
-                                    Cow::Owned(format!("$fn_arg_{arg_temp_idx}"));
-                                alloc.stack_alloc.create(temp_name.clone(), ty_info);
-                                arg_temp_idx += 1;
-
-                                stack_temporaries.push(temp_name.clone());
-                                stack_args.push((
-                                    IRLoadOp::Unary(IRLoadUnary::Reference(temp_name)),
-                                    IRType::Ptr(Box::new(arg.1.clone())),
-                                ));
-                            }
-                        }
-                    }
-                } else {
-                    reg_args.push((arg.clone(), &ALLOWED_REGS[cur_reg..(cur_reg + regs_needed)]));
-                    cur_reg += regs_needed;
-                }
-            }
-
-            // Lock all the registers that we need
-            // to use, and which haven't already been used.
-            // The ones that have been used already will be
-            // offloaded to the stack.
-            let need_to_lock = reg_args
-                .iter()
-                .map(|arg| arg.1)
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>();
-
-            let offloaded_vars = alloc.take_registers(ctx, need_to_lock.iter().copied());
-
-            // Now that the registers have been offloaded,
-            // we can lock the rest.
-            let final_take_size = alloc.reg_alloc.take_registers(need_to_lock.clone()).len();
-            // Ensure that there's nothing left.
-            assert_eq!(final_take_size, 0);
-
-            // A list of all the register variables used
-            // for argument passing that need to be dropped.
-            let mut reg_temporaries = vec![];
-
-            // Create variables for each register, then
-            // set them with the correct values.
-            for arg in &reg_args {
-                // This won't conflict with anything, since
-                // the variables are only created within this context.
-                // Nested function calls are split into locals.
-                let temp_name: Cow<'a, str> = Cow::Owned(format!("$fn_arg_{arg_temp_idx}"));
-                alloc.reg_alloc.register_variable(
-                    temp_name.clone(),
-                    arg.1.iter().cloned(),
-                    lower_type(&arg.0.1),
-                );
-                arg_temp_idx += 1;
-
-                reg_temporaries.push(temp_name.clone());
-                lower_set_variable(ctx, alloc, &temp_name, &arg.0.0);
-            }
-
-            // Create a new stack after the current one.
-            // Stack requires 8-byte alignment,
-            // and SP contains 4 bytes already allocated.
-            let mut arg_stack_alloc = StackAllocator::new(8, 4);
-
-            fn enforce_ffi_alignment(type_data: TypeData) -> TypeData {
-                TypeData {
-                    size: type_data.size,
-                    // FFI point needs 4-byte alignment.
-                    align: type_data.align.max(4),
-                }
-            }
-
-            // Args need to be added onto the stack in reverse order.
-            for (i, stack_arg) in stack_args.iter().enumerate().rev() {
-                arg_stack_alloc.create(
-                    Cow::Owned(i.to_string()),
-                    enforce_ffi_alignment(lower_type(&stack_arg.1)),
-                );
-            }
-
-            let new_stack_size = arg_stack_alloc.stack_size();
-            // Padding happens at the end, which will mess up
-            // argument passing.
-            // Adding this number to all stack offsets will move
-            // padding to the start.
-            let new_stack_offset = arg_stack_alloc.post_padding();
-
-            if new_stack_size != 0 {
-                // new_stack_offset isn't used here because
-                // it's already factored into the size, and
-                // front vs. back padding has no effect on
-                // size.
-                ctx.push_instruction("SUB".into(), format!("SP, SP, #{}", new_stack_size));
-
-                // Reverse is only needed for the stack
-                // positions, not after.
-                for (i, stack_arg) in stack_args.iter().enumerate() {
-                    // TODO: lower_load needs to support dynamic sizes
-                    //       and overflowing registers.
-                    let Some(data_reg) = lower_load::<1>(
-                        ctx,
-                        alloc,
-                        &stack_arg.0,
-                        enforce_ffi_alignment(lower_type(&stack_arg.1)),
-                        None,
-                    ) else {
-                        panic!("Could not place argument into register!");
-                    };
-
-                    let Some(stack_loc) = arg_stack_alloc.get(&Cow::Owned(i.to_string())) else {
-                        unreachable!();
-                    };
-
-                    ctx.push_instruction(
-                        "STR".into(),
-                        format!(
-                            "{}, [SP, #{}]",
-                            data_reg.names()[0],
-                            // Add new_stack_size to undo the sub.
-                            new_stack_size as i32 - (new_stack_offset as i32 + stack_loc.0)
-                        ),
-                    );
-
-                    alloc.drop_maybe_temporary(data_reg);
-                }
-            }
-
-            match &fn_data.source {
-                IRFnSource::Direct(name) => {
-                    ctx.push_instruction("BL".into(), name.to_string());
-                }
-                IRFnSource::Indirect(expr) => {
-                    // It's okay to perform a load here, since
-                    // we only use SP at the start and end of functions,
-                    // so it being messed up doesn't matter.
-                    todo!()
-                }
-            }
-
-            // Restore SP.
-            if new_stack_size != 0 {
-                ctx.push_instruction("ADD".into(), format!("SP, SP, #{}", new_stack_size));
-            }
-
-            // Free used resources.
-            for to_drop in stack_temporaries {
-                alloc.stack_alloc.drop(&to_drop);
-            }
-
-            for to_drop in reg_temporaries {
-                alloc.reg_alloc.drop(&to_drop);
-            }
-
-            // Restore copied variables back to registers (if possible).
-            alloc.release_registers(ctx, need_to_lock, offloaded_vars);
+            lower_fn_call(ctx, alloc, fn_data, |_, _, _| {});
         }
         IRStatement::Return(value) => {
             if let Some(value) = value {

@@ -331,7 +331,7 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                     }
 
                     MIRStatement::FunctionCall(fn_data) => {
-                        let mut new_source = match fn_data.source {
+                        let new_source = match fn_data.source {
                             // No expressions.
                             val @ MIRFnSource::Direct(_, _) => val,
                             MIRFnSource::Indirect(expr) => {
@@ -536,7 +536,7 @@ fn split_expr_to_locals<'a>(
                 span: expr.span.clone(),
             },
             // Real variable.
-            arg: true,
+            arg: false,
             // This span isn't correct, but good enough.
             span: expr.span.clone(),
         });

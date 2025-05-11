@@ -122,6 +122,9 @@ impl<'a> Display for IRLoadOp<'a> {
             IRLoadOp::Binary(op, binary) => {
                 write!(f, "{} ({})", op, binary)
             }
+            IRLoadOp::FunctionCall(fn_data) => {
+                write!(f, "{}", fn_data)
+            }
         }
     }
 }
