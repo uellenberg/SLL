@@ -199,93 +199,9 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
                     span,
                     ..
                 }) => {
-                    let expected_ty = match source {
-                        MIRFnSource::Direct(name, _span) => {
-                            let Some(fn_data) = ctx.program.functions.get(name) else {
-                                // TODO: Function not found error.
-                                eprintln!("Function not found: {name:?}");
-                                return false;
-                            };
-
-                            get_fn_type(fn_data)
-                        }
-                        MIRFnSource::Indirect(expr) => {
-                            let Some(ty) = check_expression(ctx, expr, Some(scope)) else {
-                                return false;
-                            };
-
-                            ty
-                        }
-                    };
-
-                    // Add type information to arguments.
-                    for arg in args.iter_mut() {
-                        if check_expression(ctx, arg, Some(scope)).is_none() {
-                            return false;
-                        }
-                    }
-
-                    let mut actual_ty = MIRType {
-                        ty: MIRTypeInner::FunctionPtr(
-                            args.iter()
-                                .map(|arg| {
-                                    arg.ty
-                                        .clone()
-                                        .expect("Function argument didn't have type info!")
-                                        .ty
-                                })
-                                .collect(),
-                            // Default to unit type for error messages
-                            // when unmatched function, since we only
-                            // know the return type once we have a valid
-                            // function.
-                            Box::new(MIRTypeInner::Unit),
-                        ),
-                        span: None,
-                    };
-
-                    // Ensure that we have a function type.
-                    let MIRTypeInner::FunctionPtr(expected_args, expected_ret_ty) = &expected_ty.ty
-                    else {
-                        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
-                        return false;
-                    };
-
-                    // Give actual_ty the correct return type.
-                    let MIRTypeInner::FunctionPtr(actual_args, actual_ret_ty) = &mut actual_ty.ty
-                    else {
-                        unreachable!();
-                    };
-
-                    **actual_ret_ty = (&**expected_ret_ty).clone();
-
-                    // Ensure that both function types have the
-                    // same arg length.
-                    if actual_args.len() != expected_args.len() {
-                        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
+                    if !check_fn_call(ctx, Some(scope), source, args, ret_ty, span) {
                         return false;
                     }
-
-                    // Ensure that individual arg types match,
-                    // for more granular errors.
-                    for (actual, expected) in actual_args.iter().zip(expected_args.iter()) {
-                        if actual != expected {
-                            print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
-                            return false;
-                        }
-                    }
-
-                    // Ensure that actual matches expected.
-                    if expected_ty.ty != actual_ty.ty {
-                        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
-                        return false;
-                    }
-
-                    // Store the computed return type.
-                    *ret_ty = Some(MIRType {
-                        ty: (&**expected_ret_ty).clone(),
-                        span: expected_ty.span,
-                    });
                 }
 
                 MIRStatement::IfStatement {
@@ -352,6 +268,118 @@ fn check_function<'a>(ctx: &MIRContext<'a>, function: &mut MIRFunction<'a>) -> b
         &|_, _| true,
         &|_, _| true,
     )
+}
+
+/// Checks the validity of a function call,
+/// assigning a value to the function's return
+/// type.
+fn check_fn_call<'a>(
+    ctx: &MIRContext<'a>,
+    scope: Option<&Scope<'a>>,
+    source: &mut MIRFnSource<'a>,
+    args: &mut Vec<MIRExpression<'a>>,
+    ret_ty: &mut Option<MIRType<'a>>,
+    span: &Span<'a>,
+) -> bool {
+    let expected_ty = match source {
+        MIRFnSource::Direct(name, _span) => {
+            let Some(fn_data) = ctx.program.functions.get(name) else {
+                // TODO: Function not found error.
+                eprintln!("Function not found: {name:?}");
+                return false;
+            };
+
+            get_fn_type(fn_data)
+        }
+        MIRFnSource::Indirect(expr) => {
+            let Some(ty) = check_expression(ctx, expr, scope) else {
+                return false;
+            };
+
+            ty
+        }
+    };
+
+    // Add type information to arguments.
+    for arg in args.iter_mut() {
+        if check_expression(ctx, arg, scope).is_none() {
+            return false;
+        }
+    }
+
+    let actual_args = args
+        .iter()
+        .map(|arg| {
+            arg.ty
+                .clone()
+                .expect("Function argument didn't have type info!")
+        })
+        .collect::<Vec<_>>();
+
+    let mut actual_ty = MIRType {
+        ty: MIRTypeInner::FunctionPtr(
+            actual_args.iter().map(|arg| arg.ty.clone()).collect(),
+            // Default to unit type for error messages
+            // when unmatched function, since we only
+            // know the return type once we have a valid
+            // function.
+            Box::new(MIRTypeInner::Unit),
+        ),
+        span: None,
+    };
+
+    // Ensure that we have a function type.
+    let MIRTypeInner::FunctionPtr(expected_args, expected_ret_ty) = &expected_ty.ty else {
+        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
+        return false;
+    };
+
+    // Give actual_ty the correct return type.
+    // We have more complete info in actual_args, so
+    // no need to extract it here (_).
+    let MIRTypeInner::FunctionPtr(_, actual_ret_ty) = &mut actual_ty.ty else {
+        unreachable!();
+    };
+
+    **actual_ret_ty = (&**expected_ret_ty).clone();
+
+    // Ensure that both function types have the
+    // same arg length.
+    if actual_args.len() != expected_args.len() {
+        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
+        return false;
+    }
+
+    // Ensure that individual arg types match,
+    // for more granular errors.
+    for (actual, expected) in actual_args.iter().zip(expected_args.iter()) {
+        if &actual.ty != expected {
+            print_unexpected_expr_ty(
+                ctx,
+                MIRType {
+                    ty: expected.clone(),
+                    span: expected_ty.span.clone(),
+                },
+                actual.clone(),
+                actual.span.clone().unwrap_or_else(|| span.clone()),
+            );
+            return false;
+        }
+    }
+
+    // Ensure that actual matches expected.
+    if expected_ty.ty != actual_ty.ty {
+        print_unexpected_expr_ty(ctx, expected_ty, actual_ty, span.clone());
+        return false;
+    }
+
+    // Store the computed return type.
+    *ret_ty = Some(MIRType {
+        ty: (&**expected_ret_ty).clone(),
+        span: expected_ty.span,
+    });
+
+    true
 }
 
 /// Prints an error for when an expression
@@ -500,6 +528,25 @@ fn check_expression<'a>(
 
                 print_var_does_not_exist(ctx, name.clone(), expr.span.clone());
                 None
+            }
+            MIRExpressionInner::FunctionCall(fn_data) => {
+                if !check_fn_call(
+                    ctx,
+                    scope,
+                    &mut fn_data.source,
+                    &mut fn_data.args,
+                    &mut fn_data.ret_ty,
+                    &fn_data.span,
+                ) {
+                    return None;
+                }
+
+                Some(
+                    fn_data
+                        .ret_ty
+                        .clone()
+                        .expect("Function was not given a return type!"),
+                )
             }
             MIRExpressionInner::Number(num) => {
                 // TODO: Handle negatives.

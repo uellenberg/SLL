@@ -242,6 +242,7 @@ impl<'a> Display for MIRExpressionInner<'a> {
             MIRExpressionInner::Number(val) => write!(f, "{}", val),
             MIRExpressionInner::Bool(val) => write!(f, "{}", val),
             MIRExpressionInner::Variable(name) => write!(f, "{}", name),
+            MIRExpressionInner::FunctionCall(fn_call) => (&**fn_call).fmt(f),
         }
     }
 }
@@ -268,7 +269,7 @@ impl<'a> Display for MIRFnCall<'a> {
             }
             write!(f, "{}", arg)?;
         }
-        write!(f, ");")?;
+        write!(f, ")")?;
 
         if f.alternate() {
             writeln!(f, " /* {} */", &self.span)?;

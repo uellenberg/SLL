@@ -1,5 +1,6 @@
 function main() {
     other(10, 11, 12, 13, 14, 15);
+    let my_val: bool = bools(true, false, false, false, false, bools(true, false, false, false, false, false));
 }
 
 function other(test: u32, a1: u32, b1: u32, c1: u32, d1: u32, e1: u32) {
@@ -10,4 +11,8 @@ function other(test: u32, a1: u32, b1: u32, c1: u32, d1: u32, e1: u32) {
 function bools(a: bool, b: bool, c: bool, d: bool, e: bool, f: bool) -> bool {
     let val: bool = f;
     return val;
+}
+
+function one() -> u32 {
+    return 1;
 }

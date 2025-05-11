@@ -36,8 +36,8 @@ functionBody = { functionStatement+ }
 functionStatement = _{
     createSetVariable
     | createVariable
-    | functionCallDirect
-    | functionCallIndirect
+    | functionCallDirectStmt
+    | functionCallIndirectStmt
     | returnStmt
     | ifStatement
     | loopStatement
@@ -52,9 +52,11 @@ createSetVariable = { "let" ~ space ~ identifier ~ ":" ~ variableType ~ "=" ~ ex
 
 setVariable = { identifier ~ "=" ~ expression ~ ";" }
 
-functionCallDirect = { identifier ~ "(" ~ functionCallArgs? ~ ")" ~ ";"  }
+functionCallDirect = { identifier ~ "(" ~ functionCallArgs? ~ ")"  }
+functionCallDirectStmt = _{ functionCallDirect ~ ";" }
 
-functionCallIndirect = { expression ~ "(" ~ functionCallArgs? ~ ")" ~ ";"  }
+functionCallIndirect = { "(" ~ expression ~ ")" ~ "(" ~ functionCallArgs? ~ ")"  }
+functionCallIndirectStmt = _{ functionCallIndirect ~ ";" }
 
 functionCallArgs = {
     expression ~ ("," ~ expression)* ~ ","?
@@ -116,7 +118,7 @@ multiplication = {
 }
 
 primary = {
-    number | boolLiteral | identifier | "(" ~ expression ~ ")"
+    number | functionCallDirect | functionCallIndirect | boolLiteral | identifier | "(" ~ expression ~ ")"
 }
 
 logicalOp = { "&&" | "||" }

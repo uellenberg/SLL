@@ -60,7 +60,11 @@ pub fn const_optimize_expr(ctx: &mut MIRContext<'_>) -> bool {
                         *value = reduce_expr_simple(&ctx.program.constants, &value);
                     }
 
-                    MIRStatement::FunctionCall(MIRFnCall { args, .. }) => {
+                    MIRStatement::FunctionCall(MIRFnCall { source, args, .. }) => {
+                        if let MIRFnSource::Indirect(expr) = source {
+                            *expr = reduce_expr_simple(&ctx.program.constants, expr);
+                        }
+
                         for arg in args {
                             *arg = reduce_expr_simple(&ctx.program.constants, &arg);
                         }
@@ -245,6 +249,9 @@ fn reduce_expr<'a>(
         MIRExpressionInner::Variable(name) => get_const(name.clone())
             .map(|v| v.inner)
             .unwrap_or(MIRExpressionInner::Variable(name.clone())),
+        MIRExpressionInner::FunctionCall(fn_data) => {
+            MIRExpressionInner::FunctionCall(fn_data.clone())
+        }
     })();
 
     MIRExpression {
@@ -327,16 +334,29 @@ pub fn split_exprs_to_locals(ctx: &mut MIRContext) {
                         let mut new_source = match fn_data.source {
                             // No expressions.
                             val @ MIRFnSource::Direct(_, _) => val,
-                            MIRFnSource::Indirect(expr) => MIRFnSource::Indirect(
-                                split_expr_to_locals(&expr, &mut pre, &mut post, &local_idx, true),
-                            ),
+                            MIRFnSource::Indirect(expr) => {
+                                MIRFnSource::Indirect(split_expr_to_locals(
+                                    &expr,
+                                    &mut pre,
+                                    &mut post,
+                                    &local_idx,
+                                    // Force breaking out to a separate
+                                    // var on nested functions.
+                                    !matches!(&expr.inner, MIRExpressionInner::FunctionCall(_)),
+                                ))
+                            }
                         };
 
                         let mut new_args = vec![];
 
                         for arg in fn_data.args.into_iter() {
                             new_args.push(split_expr_to_locals(
-                                &arg, &mut pre, &mut post, &local_idx, true,
+                                &arg,
+                                &mut pre,
+                                &mut post,
+                                &local_idx, // Force breaking out to a separate
+                                // var on nested functions.
+                                !matches!(&arg.inner, MIRExpressionInner::FunctionCall(_)),
                             ));
                         }
 
@@ -464,12 +484,32 @@ fn split_expr_to_locals<'a>(
         MIRExpressionInner::BoolOr(left, right) => {
             simple_binary!(left, right, MIRExpressionInner::BoolOr)
         }
-        // TODO: When you add function calls here, you MUST
-        //       ensure that needs_var = true.
         // Primitive expressions don't need variables.
         MIRExpressionInner::Variable(val) => (MIRExpressionInner::Variable(val.clone()), false),
         MIRExpressionInner::Number(val) => (MIRExpressionInner::Number(*val), false),
         MIRExpressionInner::Bool(val) => (MIRExpressionInner::Bool(*val), false),
+        MIRExpressionInner::FunctionCall(fn_data) => {
+            let source = match &fn_data.source {
+                val @ MIRFnSource::Direct(_, _) => val.clone(),
+                MIRFnSource::Indirect(expr) => MIRFnSource::Indirect(recurse!(expr)),
+            };
+
+            let mut args = vec![];
+
+            for arg in &fn_data.args {
+                args.push(recurse!(arg));
+            }
+
+            (
+                MIRExpressionInner::FunctionCall(Box::new(MIRFnCall {
+                    source,
+                    args,
+                    ret_ty: fn_data.ret_ty.clone(),
+                    span: fn_data.span.clone(),
+                })),
+                !head,
+            )
+        }
     };
 
     // Add span and type information back to

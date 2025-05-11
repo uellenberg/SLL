@@ -523,6 +523,40 @@ fn parse_primary<'a>(location: &'a Path, value: Pair<'a, Rule>) -> MIRExpression
 
     let expr = match data.as_rule() {
         Rule::number => MIRExpressionInner::Number(parse_number(data)),
+        Rule::functionCallDirect => {
+            let mut data = data.into_inner();
+
+            let name_data = data.next().unwrap();
+            let name = name_data.as_str();
+            let args = data
+                .next()
+                .map_or(vec![], |args| parse_function_call_args(location, args));
+
+            MIRExpressionInner::FunctionCall(Box::new(MIRFnCall {
+                source: MIRFnSource::Direct(
+                    Cow::Borrowed(name),
+                    to_span(location, name_data.as_span()),
+                ),
+                args,
+                ret_ty: None,
+                span: span.clone(),
+            }))
+        }
+        Rule::functionCallIndirect => {
+            let mut data = data.into_inner();
+
+            let ptr = parse_expression(location, data.next().unwrap());
+            let args = data
+                .next()
+                .map_or(vec![], |args| parse_function_call_args(location, args));
+
+            MIRExpressionInner::FunctionCall(Box::new(MIRFnCall {
+                source: MIRFnSource::Indirect(ptr),
+                args,
+                ret_ty: None,
+                span: span.clone(),
+            }))
+        }
         Rule::identifier => MIRExpressionInner::Variable(Cow::Borrowed(data.as_str())),
         Rule::boolLiteral => MIRExpressionInner::Bool(data.as_str() == "true"),
         Rule::expression => {

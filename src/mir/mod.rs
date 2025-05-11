@@ -11,7 +11,7 @@ mod type_check;
 
 use crate::mir::drop::drop_at_scope_end;
 use crate::mir::expr::{const_eval, const_optimize_expr, split_exprs_to_locals};
-use crate::mir::function::{insert_fn_arg_args, resolve_fn_to_vars};
+use crate::mir::function::{insert_fn_arg_args, resolve_fns_to_vars};
 use crate::mir::if_statement::flatten_ifs;
 use crate::mir::label::rename_labels;
 use crate::mir::loop_statement::flatten_loops;
@@ -40,7 +40,7 @@ pub fn visit_mir(ctx: &mut MIRContext<'_>) -> bool {
 
     // Args now exist as phantom variables.
 
-    resolve_fn_to_vars(ctx);
+    resolve_fns_to_vars(ctx);
 
     // Functions now have correct indirect/direct markers.
 
@@ -385,6 +385,9 @@ pub enum MIRExpressionInner<'a> {
 
     /// Variable access.
     Variable(Cow<'a, str>),
+
+    /// Function call (using return value).
+    FunctionCall(Box<MIRFnCall<'a>>),
 }
 
 /// A type written out as text.

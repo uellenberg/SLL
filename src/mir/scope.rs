@@ -1,4 +1,4 @@
-use crate::mir::{MIRExpression, MIRExpressionInner, MIRStatement, MIRVariable};
+use crate::mir::{MIRExpression, MIRExpressionInner, MIRFnSource, MIRStatement, MIRVariable};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -405,6 +405,16 @@ pub fn explore_expression_mut<'a>(
         }
         MIRExpressionInner::BoolOr(left, right) => {
             simple_binary!(left, right);
+        }
+
+        MIRExpressionInner::FunctionCall(fn_data) => {
+            if let MIRFnSource::Indirect(expr) = &mut fn_data.source {
+                explore_expression_mut(expr, pre_run);
+            }
+
+            for arg in &mut fn_data.args {
+                explore_expression_mut(arg, pre_run);
+            }
         }
 
         // No expressions.
