@@ -241,17 +241,17 @@ fn lower_expression<'a>(value: &MIRExpression<'a>) -> IRLoadOp<'a> {
             MIRExpressionInner::Number,
             num,
             var
-        ) => binary_lv_out!(*num, var, IRBinaryOperation::Div32),
+        ) => binary_lv_out!(*num, var, IRBinaryOperation::UDiv32),
 
         binary_vl_in!(
             MIRExpressionInner::Div,
             MIRExpressionInner::Number,
             num,
             var
-        ) => binary_vl_out!(*num, var, IRBinaryOperation::Div32),
+        ) => binary_vl_out!(*num, var, IRBinaryOperation::UDiv32),
 
         binary_vv_in!(MIRExpressionInner::Div, var1, var2) => {
-            binary_vv_out!(var1, var2, IRBinaryOperation::Div32)
+            binary_vv_out!(var1, var2, IRBinaryOperation::UDiv32)
         }
 
         binary_lv_in!(

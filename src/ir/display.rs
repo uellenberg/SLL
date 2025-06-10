@@ -155,7 +155,7 @@ impl Display for IRBinaryOperation {
             IRBinaryOperation::Add32 => write!(f, "add32"),
             IRBinaryOperation::Sub32 => write!(f, "sub32"),
             IRBinaryOperation::Mul32 => write!(f, "mul32"),
-            IRBinaryOperation::Div32 => write!(f, "div32"),
+            IRBinaryOperation::UDiv32 => write!(f, "div32"),
             IRBinaryOperation::Equal32 => write!(f, "eq32"),
             IRBinaryOperation::NotEqual32 => write!(f, "neq32"),
             IRBinaryOperation::Greater32 => write!(f, "gt32"),

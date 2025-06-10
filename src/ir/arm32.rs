@@ -915,9 +915,9 @@ fn lower_op_binary_32(
                 format!("{}, {}, {}", store_reg, left_reg, right_reg),
             );
         }
-        IRBinaryOperation::Div32 => {
+        IRBinaryOperation::UDiv32 => {
             ctx.push_instruction(
-                "DIV".into(),
+                "UDIV".into(),
                 format!("{}, {}, {}", store_reg, left_reg, right_reg),
             );
         }

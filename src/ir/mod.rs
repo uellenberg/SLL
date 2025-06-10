@@ -201,8 +201,8 @@ pub enum IRBinaryOperation {
     /// Multiply two 32-bit ints.
     Mul32,
 
-    /// Divide two 32-bit ints.
-    Div32,
+    /// Divide two unsigned 32-bit ints.
+    UDiv32,
 
     /// Check if two 32-bit ints are equal.
     Equal32,
